@@ -57,7 +57,7 @@ def check_imds_endpoint(
         with urllib.request.urlopen(req, timeout=timeout) as response:
             body = response.read().decode('utf-8')
             return response.status == 200, body
-    except (urllib.error.URLError, socket.timeout):
+    except (urllib.error.URLError, socket.timeout, UnicodeDecodeError):
         return False, ''
 
 
@@ -191,7 +191,7 @@ def check_dmi_files() -> bool:
                     return PROVIDER_AMAZON
                 elif 'google' in content:
                     return PROVIDER_GOOGLE
-        except FileNotFoundError:
+        except OSError:
             continue
 
     return None
@@ -207,7 +207,8 @@ def check_dmidecode() -> bool:
         result = subprocess.run(
             ['dmidecode', '-s', 'system-manufacturer'],
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL
+            stderr=subprocess.DEVNULL,
+            timeout=5
         )
         if result.returncode == 0:
             manufacturer = result.stdout.decode('utf-8').strip().lower()
@@ -217,7 +218,7 @@ def check_dmidecode() -> bool:
                 return PROVIDER_AMAZON
             elif 'google' in manufacturer:
                 return PROVIDER_GOOGLE
-    except FileNotFoundError:
-        # The dmidecode binary is not installed in the environment
+    except (FileNotFoundError, subprocess.SubprocessError):
+        # The dmidecode binary is not installed, or command timed out/failed
         pass
     return None
