@@ -63,10 +63,10 @@ def test_get_logger_config():
             # 1. Test standard logger
             log_instance = get_logger(debug=False)
             assert log_instance.level == logging.INFO
-            assert len(log_instance.handlers) == 1
+            assert len(log_instance.handlers) == 2
 
             # 2. Test debug logger update
             log_instance_debug = get_logger(debug=True)
             assert log_instance_debug.level == logging.DEBUG
             # Should not duplicate handler
-            assert len(log_instance_debug.handlers) == 1
+            assert len(log_instance_debug.handlers) == 2

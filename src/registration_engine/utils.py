@@ -19,8 +19,10 @@
 """Utility functions for the Registration Engine."""
 
 import logging
-from logging.handlers import RotatingFileHandler
 import os
+import sys
+
+from logging.handlers import RotatingFileHandler
 
 
 class RegistrationFormatter(logging.Formatter):
@@ -57,14 +59,14 @@ def get_logger(debug: bool = False) -> logging.Logger:
     if not logger.handlers:
         log_path = os.path.expanduser("~/registration_engine.log")
         try:
-            handler = RotatingFileHandler(
+            file_handler = RotatingFileHandler(
                 log_path,
                 maxBytes=10 * 1024 * 1024,
                 backupCount=5
             )
         except Exception:
             # Fallback to local directory if ~ is not writable
-            handler = RotatingFileHandler(
+            file_handler = RotatingFileHandler(
                 "registration_engine.log",
                 maxBytes=10 * 1024 * 1024,
                 backupCount=5
@@ -75,7 +77,11 @@ def get_logger(debug: bool = False) -> logging.Logger:
             "%(newline)s    %(message)s"
         )
         formatter = RegistrationFormatter(fmt)
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        stream_handler = logging.StreamHandler(sys.stdout)
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
 
     return logger
