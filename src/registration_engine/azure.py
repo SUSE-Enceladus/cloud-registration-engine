@@ -18,9 +18,58 @@
 
 """Azure Workload Identity & Metadata Collection module."""
 
-from typing import Any, Dict
+import os
+import requests
+import time
 
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+from azure.core.exceptions import AzureError
 from azure.identity import WorkloadIdentityCredential
+
+from registration_engine.utils import get_logger
+
+ARM_ENDPOINT = "https://management.azure.com"
+ARM_SCOPE = "https://management.azure.com/.default"
+EXT_API_VERSION = "2023-05-01"
+
+log = get_logger()
+
+VERIFY_RETRY_MAX = int(os.getenv("VERIFY_RETRY_MAX", "5"))
+VERIFY_RETRY_BACKOFF = float(os.getenv("VERIFY_RETRY_BACKOFF", "2.0"))
+
+
+def _require_env(name: str) -> str:
+    """
+    Get the environment variable or raise RuntimeError if not set
+
+    Args:
+        name: The name of the environment variable to retrieve.
+
+    Returns:
+        The environment variable if it is set.
+    """
+    val = os.getenv(name, "").strip()
+    if not val:
+        raise RuntimeError(f"Required env var missing or empty: {name}")
+    return val
+
+
+def _build_credential() -> WorkloadIdentityCredential:
+    """
+    Use WorkloadIdentityCredential.
+
+    Fail if environement variables are missing.
+
+    Returns:
+        A WorkloadIdentityCredential instance with the token info.
+    """
+    return WorkloadIdentityCredential(
+        tenant_id=_require_env("AZURE_TENANT_ID"),
+        client_id=_require_env("AZURE_CLIENT_ID"),
+        token_file_path=_require_env("AZURE_FEDERATED_TOKEN_FILE"),
+    )
 
 
 @dataclass(frozen=True)
@@ -52,6 +101,9 @@ def fetch_extension_plan(
 ) -> Plan:
     """Fetch extension plan block using ARM Identity.
 
+    Retries with exponential backoff on transient (5xx, 429, network) errors.
+    Non-retryable HTTP errors (401/403/404) fail-closed immediately.
+
     Args:
         credential: Azure Management Bearer token
         extension_resource_id: Resource ID of the extension
@@ -59,7 +111,58 @@ def fetch_extension_plan(
     Returns:
         Plan dictionary
     """
-    pass
+    url = (
+        f"{ARM_ENDPOINT}{extension_resource_id}?api-version={EXT_API_VERSION}"
+    )
+
+    last_err: Optional[Exception] = None
+    delay = 1.0
+    for attempt in range(1, VERIFY_RETRY_MAX + 1):
+        try:
+            try:
+                token = credential.get_token(ARM_SCOPE).token
+            except AzureError as ae:
+                last_err = ae
+                raise ae
+
+            headers = {
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/json"
+            }
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                body = resp.json()
+                plan_block = body.get("plan")
+                if not plan_block:
+                    raise RuntimeError(
+                        f"Extension resource {extension_resource_id} has no "
+                        "plan{} block (was it deployed via Marketplace?)"
+                    )
+                return Plan.from_arm(plan_block)
+            if resp.status_code in (429, 500, 502, 503, 504):
+                last_err = RuntimeError(
+                    f"Transient ARM error {resp.status_code}: "
+                    f"{resp.text[:200]}"
+                )
+            else:
+                raise RuntimeError(
+                    f"Non-retryable ARM error {resp.status_code}: "
+                    f"{resp.text[:500]}"
+                )
+        except (requests.RequestException, AzureError) as e:
+            last_err = e
+
+        log.warning(
+            "ARM verification attempt %d/%d failed: %s",
+            attempt,
+            VERIFY_RETRY_MAX,
+            last_err,
+        )
+        if attempt < VERIFY_RETRY_MAX:
+            time.sleep(delay)
+            delay *= VERIFY_RETRY_BACKOFF
+
+    raise RuntimeError(f"ARM verification exhausted retries: {last_err}")
 
 
 def get_latest_api_version() -> str:
@@ -81,7 +184,7 @@ def get_compute_metadata() -> Dict[str, Any]:
 
 
 def generate_nonce(offer: str) -> str:
-    """Hash authoritative plan block and return a URL-safe Base64 encoded nonce.
+    """Hash authoritative plan block and return a URL-safe Base64 encoded nonce
 
     Args:
         offer: Authoritative plan URN
@@ -113,7 +216,28 @@ def verify_once() -> Plan:
     Returns:
         Plan object with the authoritive plan information.
     """
-    pass
+    extension_resource_id = _require_env("EXTENSION_RESOURCE_ID")
+    env_plan = Plan.from_env()
+    credential = _build_credential()
+
+    authoritative = fetch_extension_plan(credential, extension_resource_id)
+
+    if authoritative != env_plan:
+        log.error(
+            "Plan mismatch! ARM=%s ENV=%s - "
+            "possible tampering. Failing closed.",
+            authoritative,
+            env_plan,
+        )
+        raise RuntimeError("Plan mismatch detected")
+
+    log.info(
+        "Plan verified: publisher=%s offer=%s plan=%s",
+        authoritative.publisher_id,
+        authoritative.offer_id,
+        authoritative.plan_id,
+    )
+    return authoritative
 
 
 def get_verification_data(offer: str) -> str:
