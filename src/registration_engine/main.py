@@ -20,7 +20,7 @@
 
 
 def main() -> None:
-    """Main function executing the 18-hour registration validation event loop."""
+    """Main function executing the 18-hour registration loop."""
     pass
 
 
