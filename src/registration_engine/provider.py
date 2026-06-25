@@ -94,7 +94,8 @@ def detect_cloud_provider() -> str:
     dmi_file_check = check_dmi_files()
     if dmi_file_check:
         logger.info(
-            f'Detected provider via DMI files: {dmi_file_check}',
+            'Detected provider via DMI files: %s',
+            dmi_file_check,
             extra={'provider': dmi_file_check}
         )
         return dmi_file_check
@@ -102,7 +103,8 @@ def detect_cloud_provider() -> str:
     dmidecode_check = check_dmidecode()
     if dmidecode_check:
         logger.info(
-            f'Detected provider via dmidecode: {dmidecode_check}',
+            'Detected provider via dmidecode: %s',
+            dmidecode_check,
             extra={'provider': dmidecode_check}
         )
         return dmidecode_check
