@@ -16,18 +16,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Chaos and resilience tests for the azure module."""
+"""Chaos and resilience tests for the microsoft module."""
 
 from unittest.mock import MagicMock, patch
 
 import requests
 from azure.core.exceptions import AzureError
 
-from registration_engine.azure import fetch_extension_plan
+from registration_engine.microsoft import fetch_extension_plan
 
 
-@patch("registration_engine.azure.time.sleep")
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.time.sleep")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_connection_chaos(mock_get, mock_sleep):
     """Chaos Test: Simulates extreme connection drops and network issues."""
     mock_cred = MagicMock()
@@ -65,8 +65,8 @@ def test_fetch_extension_plan_connection_chaos(mock_get, mock_sleep):
     mock_sleep.assert_any_call(4.0)
 
 
-@patch("registration_engine.azure.time.sleep")
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.time.sleep")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_rate_limiting_chaos(mock_get, mock_sleep):
     """Chaos Test: Simulates severe Azure ARM API rate limiting (429)."""
     mock_cred = MagicMock()
@@ -99,8 +99,8 @@ def test_fetch_extension_plan_rate_limiting_chaos(mock_get, mock_sleep):
     mock_sleep.assert_any_call(8.0)
 
 
-@patch("registration_engine.azure.time.sleep")
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.time.sleep")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_azure_error_chaos(mock_get, mock_sleep):
     """Chaos Test: Simulates unexpected azure SDK/identity failures."""
     mock_cred = MagicMock()
