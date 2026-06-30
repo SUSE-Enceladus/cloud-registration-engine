@@ -26,7 +26,7 @@ def update_registration_secret(
     cert: str,
     instance_data: Dict[str, Any]
 ) -> None:
-    """Store/patch compiled registration info back into K8s secret."""
+    """Store/patch compiled registration info back into K8s secret.
 
     Args:
         registration_ip: Active SMT routing IP address
