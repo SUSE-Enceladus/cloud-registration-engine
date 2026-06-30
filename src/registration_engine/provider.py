@@ -23,6 +23,10 @@ import subprocess
 import urllib.error
 import urllib.request
 
+from registration_engine.utils import get_logger
+
+logger = get_logger()
+
 PROVIDER_MICROSOFT = 'microsoft'
 PROVIDER_AMAZON = 'amazon'
 PROVIDER_GOOGLE = 'google'
@@ -63,24 +67,52 @@ def detect_cloud_provider() -> str:
     Returns:
         "microsoft", "amazon", "google", or "unknown".
     """
-    print('Attempting IMDS detection...')
+    logger.info('Attempting IMDS detection...')
     if check_azure_imds():
+        logger.info(
+            'Detected Microsoft Azure IMDS.',
+            extra={'provider': PROVIDER_MICROSOFT}
+        )
         return PROVIDER_MICROSOFT
     if check_gcp_imds():
+        logger.info(
+            'Detected Google Cloud Platform IMDS.',
+            extra={'provider': PROVIDER_GOOGLE}
+        )
         return PROVIDER_GOOGLE
     if check_aws_imds():
+        logger.info(
+            'Detected Amazon Web Services IMDS.',
+            extra={'provider': PROVIDER_AMAZON}
+        )
         return PROVIDER_AMAZON
 
-    print('IMDS unreachable or timed out. Falling back to hardware info...')
+    logger.info(
+        'IMDS unreachable or timed out. Falling back to hardware info...'
+    )
 
     dmi_file_check = check_dmi_files()
     if dmi_file_check:
+        logger.info(
+            'Detected provider via DMI files: %s',
+            dmi_file_check,
+            extra={'provider': dmi_file_check}
+        )
         return dmi_file_check
 
     dmidecode_check = check_dmidecode()
     if dmidecode_check:
+        logger.info(
+            'Detected provider via dmidecode: %s',
+            dmidecode_check,
+            extra={'provider': dmidecode_check}
+        )
         return dmidecode_check
 
+    logger.info(
+        'Cloud provider detection failed. Unknown provider.',
+        extra={'provider': PROVIDER_UNKNOWN}
+    )
     return PROVIDER_UNKNOWN
 
 
