@@ -32,3 +32,6 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 registration-engine = "registration_engine.main:main"
+
+[tool.pytest.ini_options]
+addopts = "--cov=registration_engine --cov-report=term-missing"
