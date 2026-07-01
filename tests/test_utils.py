@@ -22,7 +22,8 @@ import logging
 import os
 import tempfile
 from unittest.mock import patch
-from registration_engine.utils import get_logger, RegistrationFormatter
+
+from registration_engine.utils import RegistrationFormatter, get_logger
 
 
 def test_registration_formatter():

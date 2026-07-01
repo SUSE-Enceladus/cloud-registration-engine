@@ -19,14 +19,14 @@
 """Unit tests for the microsoft module."""
 
 import os
-import pytest
-
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from registration_engine.microsoft import (
     Plan,
-    _require_env,
     _build_credential,
+    _require_env,
     fetch_extension_plan,
     verify_once,
 )

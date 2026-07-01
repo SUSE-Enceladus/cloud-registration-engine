@@ -19,12 +19,11 @@
 """Microsoft Workload Identity & Metadata Collection module."""
 
 import os
-import requests
 import time
-
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import requests
 from azure.core.exceptions import AzureError
 from azure.identity import WorkloadIdentityCredential
 
