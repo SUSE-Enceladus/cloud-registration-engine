@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Azure Workload Identity & Metadata Collection module."""
+"""Microsoft Workload Identity & Metadata Collection module."""
 
 import os
 import requests
