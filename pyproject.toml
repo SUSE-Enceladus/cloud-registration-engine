@@ -24,7 +24,7 @@ kubernetes = "^29.0.0"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
 pytest-cov = "^4.1.0"
-flake8 = "^7.0.0"
+ruff = "^0.15.20"
 
 [build-system]
 requires = ["poetry-core"]
@@ -35,3 +35,35 @@ registration-engine = "registration_engine.main:main"
 
 [tool.pytest.ini_options]
 addopts = "--cov=registration_engine --cov-report=term-missing"
+
+[tool.ruff]
+# Set the maximum line length to 88 (matching Black's default)
+line-length = 88
+
+# Assume Python 3.11 (change to match your project's version)
+target-version = "py311"
+
+# Exclude commonly ignored directories
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+]
+
+[tool.ruff.lint]
+# Select the rule sets you want to enforce.
+# F = Pyflakes, E = pycodestyle errors, W = pycodestyle warnings, I = isort
+select = ["E", "F", "W", "I"]
+ignore = []
+
+# Allow Ruff to automatically fix all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+# Use double quotes for strings (matching Black)
+quote-style = "double"
+# Indent with spaces, rather than tabs
+indent-style = "space"
