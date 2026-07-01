@@ -95,3 +95,77 @@ def test_update_registration_secret_socket_dropout_chaos(
 
     assert mock_v1.read_namespaced_secret.call_count == 2
     mock_sleep.assert_called_once_with(1.0)
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.client.CoreV1Api")
+@patch("registration_engine.k8s.config.load_incluster_config")
+def test_update_registration_secret_create_transient_error_chaos(
+    mock_load_incluster, mock_v1_class, mock_sleep
+):
+    """Chaos Test: Simulates transient error during secret creation."""
+    mock_v1 = MagicMock()
+    mock_v1_class.return_value = mock_v1
+
+    # Simulate read raising 404 (needs creation)
+    mock_v1.read_namespaced_secret.side_effect = ApiException(
+        status=404, reason="Not Found"
+    )
+
+    # First create call raises transient 409 conflict, second succeeds.
+    mock_v1.create_namespaced_secret.side_effect = [
+        ApiException(status=409, reason="Conflict"),
+        MagicMock()
+    ]
+
+    update_registration_secret("10.0.0.1", "cert", {})
+
+    assert mock_v1.create_namespaced_secret.call_count == 2
+    mock_sleep.assert_called_once_with(1.0)
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.client.CoreV1Api")
+@patch("registration_engine.k8s.config.load_incluster_config")
+def test_update_registration_secret_create_non_transient_error_chaos(
+    mock_load_incluster, mock_v1_class, mock_sleep
+):
+    """Chaos Test: Simulates non-transient error during creation."""
+    mock_v1 = MagicMock()
+    mock_v1_class.return_value = mock_v1
+
+    # Simulate read raising 404 (needs creation)
+    mock_v1.read_namespaced_secret.side_effect = ApiException(
+        status=404, reason="Not Found"
+    )
+
+    # Create raises 403 Forbidden (non-transient)
+    mock_v1.create_namespaced_secret.side_effect = ApiException(
+        status=403, reason="Forbidden"
+    )
+
+    with pytest.raises(ApiException, match="Forbidden"):
+        update_registration_secret("10.0.0.1", "cert", {})
+
+    assert mock_v1.create_namespaced_secret.call_count == 1
+    assert mock_sleep.call_count == 0
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.client.CoreV1Api")
+@patch("registration_engine.k8s.config.load_incluster_config")
+def test_update_registration_secret_generic_exception_chaos(
+    mock_load_incluster, mock_v1_class, mock_sleep
+):
+    """Chaos Test: Simulates generic unexpected code crashes."""
+    mock_v1 = MagicMock()
+    mock_v1_class.return_value = mock_v1
+
+    # Simulate generic exception on read
+    mock_v1.read_namespaced_secret.side_effect = Exception("System Crash")
+
+    with pytest.raises(RuntimeError, match="exhausted retries"):
+        update_registration_secret("10.0.0.1", "cert", {})
+
+    assert mock_v1.read_namespaced_secret.call_count == 5
+    assert mock_sleep.call_count == 4

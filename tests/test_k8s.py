@@ -154,3 +154,21 @@ def test_update_registration_secret_custom_env_config(
         args, kwargs = mock_v1.patch_namespaced_secret.call_args
         body = kwargs["body"]
         assert body.string_data["registrationUrl"] == "10.0.0.1"
+
+
+@patch("registration_engine.k8s.client.CoreV1Api")
+@patch("registration_engine.k8s.config.load_incluster_config")
+def test_update_registration_secret_instance_data_string(
+    mock_load_incluster, mock_v1_class
+):
+    """Test successful patch when instance_data is already a string."""
+    mock_v1 = MagicMock()
+    mock_v1_class.return_value = mock_v1
+    mock_v1.read_namespaced_secret.return_value = MagicMock()
+
+    update_registration_secret("10.0.0.1", "cert", "raw_string_data")
+
+    mock_v1.patch_namespaced_secret.assert_called_once()
+    args, kwargs = mock_v1.patch_namespaced_secret.call_args
+    body = kwargs["body"]
+    assert body.string_data["instanceData"] == "raw_string_data"
