@@ -16,14 +16,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Unit tests for the azure module."""
+"""Unit tests for the microsoft module."""
 
 import os
 import pytest
 
 from unittest.mock import MagicMock, patch
 
-from registration_engine.azure import (
+from registration_engine.microsoft import (
     Plan,
     _require_env,
     _build_credential,
@@ -49,7 +49,7 @@ def test_require_env_missing():
             _require_env("TEST_KEY")
 
 
-@patch("registration_engine.azure.WorkloadIdentityCredential")
+@patch("registration_engine.microsoft.WorkloadIdentityCredential")
 def test_build_credential_success(mock_cred_class):
     """Test _build_credential successfully creates credential."""
     env_vars = {
@@ -66,7 +66,7 @@ def test_build_credential_success(mock_cred_class):
         )
 
 
-@patch("registration_engine.azure.WorkloadIdentityCredential")
+@patch("registration_engine.microsoft.WorkloadIdentityCredential")
 def test_build_credential_missing_env(mock_cred_class):
     """Test _build_credential raises RuntimeError on missing env."""
     with patch.dict(os.environ, {}, clear=True):
@@ -74,7 +74,7 @@ def test_build_credential_missing_env(mock_cred_class):
             _build_credential()
 
 
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_success(mock_get):
     """Test fetch_extension_plan success."""
     mock_cred = MagicMock()
@@ -106,7 +106,7 @@ def test_fetch_extension_plan_success(mock_get):
     )
 
 
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_missing_plan_block(mock_get):
     """Test fetch_extension_plan fails when plan block is absent."""
     mock_cred = MagicMock()
@@ -121,7 +121,7 @@ def test_fetch_extension_plan_missing_plan_block(mock_get):
         fetch_extension_plan(mock_cred, "/sub/resource")
 
 
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_non_retryable_error(mock_get):
     """Test fetch_extension_plan fails immediately on non-retryable error."""
     mock_cred = MagicMock()
@@ -138,8 +138,8 @@ def test_fetch_extension_plan_non_retryable_error(mock_get):
     assert mock_get.call_count == 1
 
 
-@patch("registration_engine.azure.time.sleep")
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.time.sleep")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_transient_retry_success(mock_get, mock_sleep):
     """Test fetch_extension_plan retries on 500 and then succeeds."""
     mock_cred = MagicMock()
@@ -167,8 +167,8 @@ def test_fetch_extension_plan_transient_retry_success(mock_get, mock_sleep):
     mock_sleep.assert_called_once_with(1.0)
 
 
-@patch("registration_engine.azure.time.sleep")
-@patch("registration_engine.azure.requests.get")
+@patch("registration_engine.microsoft.time.sleep")
+@patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_transient_retry_exhausted(mock_get, mock_sleep):
     """Test fetch_extension_plan retries and exhausts limits."""
     mock_cred = MagicMock()
@@ -186,8 +186,8 @@ def test_fetch_extension_plan_transient_retry_exhausted(mock_get, mock_sleep):
     assert mock_get.call_count == 5
 
 
-@patch("registration_engine.azure.fetch_extension_plan")
-@patch("registration_engine.azure._build_credential")
+@patch("registration_engine.microsoft.fetch_extension_plan")
+@patch("registration_engine.microsoft._build_credential")
 def test_verify_once_success(mock_build_cred, mock_fetch_plan):
     """Test verify_once matches plan and returns it."""
     env_vars = {
@@ -205,8 +205,8 @@ def test_verify_once_success(mock_build_cred, mock_fetch_plan):
         assert result.plan_id == "plan"
 
 
-@patch("registration_engine.azure.fetch_extension_plan")
-@patch("registration_engine.azure._build_credential")
+@patch("registration_engine.microsoft.fetch_extension_plan")
+@patch("registration_engine.microsoft._build_credential")
 def test_verify_once_mismatch(mock_build_cred, mock_fetch_plan):
     """Test verify_once raises RuntimeError on plan mismatch."""
     env_vars = {

@@ -31,35 +31,80 @@ def test_check_imds_endpoint_timeout(mock_urlopen):
 
 
 @patch('registration_engine.provider.check_imds_endpoint')
-def test_check_azure_imds(mock_check_endpoint):
-    """Test Azure IMDS check."""
-    mock_check_endpoint.return_value = (True, '')
+def test_check_azure_imds_ipv4_success(mock_check):
+    """Test Azure IMDS succeeding on the first (IPv4) attempt."""
+    mock_check.side_effect = [(True, '')]
+
     assert provider.check_azure_imds() is True
+    assert mock_check.call_count == 1
 
 
 @patch('registration_engine.provider.check_imds_endpoint')
-def test_check_gcp_imds(mock_check_endpoint):
-    """Test GCP IMDS check."""
-    mock_check_endpoint.return_value = (True, '')
+def test_check_azure_imds_ipv6_fallback(mock_check):
+    """Test Azure IMDS falling back to IPv4-mapped IPv6."""
+    mock_check.side_effect = [(False, ''), (True, '')]
+
+    assert provider.check_azure_imds() is True
+    assert mock_check.call_count == 2
+
+
+@patch('registration_engine.provider.check_imds_endpoint')
+def test_check_gcp_imds_dns_success(mock_check):
+    """Test GCP IMDS succeeding on the DNS hostname."""
+    mock_check.side_effect = [(True, '')]
+
     assert provider.check_gcp_imds() is True
+    assert mock_check.call_count == 1
 
 
 @patch('registration_engine.provider.check_imds_endpoint')
-def test_check_aws_imds_v2_success(mock_check_endpoint):
-    """Test AWS IMDSv2 success (token works)."""
-    mock_check_endpoint.side_effect = [(True, 'fake_token'), (True, '')]
+def test_check_gcp_imds_ipv4_fallback(mock_check):
+    """Test GCP IMDS falling back to IPv4 after DNS failure."""
+    mock_check.side_effect = [(False, ''), (True, ''), (False, '')]
 
-    assert provider.check_aws_imds() is True
-    assert mock_check_endpoint.call_count == 2
+    assert provider.check_gcp_imds() is True
+    assert mock_check.call_count == 2
 
 
 @patch('registration_engine.provider.check_imds_endpoint')
-def test_check_aws_imds_v1_fallback(mock_check_endpoint):
-    """Test AWS IMDSv2 failure falling back to IMDSv1."""
-    mock_check_endpoint.side_effect = [(False, ''), (True, '')]
+def test_check_gcp_imds_all_fail(mock_check):
+    """Test GCP IMDS failing across DNS, IPv4, and IPv6."""
+    mock_check.return_value = (False, '')
+
+    assert provider.check_gcp_imds() is False
+    assert mock_check.call_count == 3
+
+
+@patch('registration_engine.provider.check_imds_endpoint')
+def test_check_aws_imds_ipv4_v2_success(mock_check):
+    """Test AWS IMDSv2 success on first IPv4 attempt."""
+    mock_check.side_effect = [(True, 'fake_token'), (True, '')]
 
     assert provider.check_aws_imds() is True
-    assert mock_check_endpoint.call_count == 2
+    assert mock_check.call_count == 2
+
+
+@patch('registration_engine.provider.check_imds_endpoint')
+def test_check_aws_imds_ipv4_v1_fallback(mock_check):
+    """Test AWS IMDS falling back to v1 on IPv4."""
+    mock_check.side_effect = [(False, ''), (True, '')]
+
+    assert provider.check_aws_imds() is True
+    assert mock_check.call_count == 2
+
+
+@patch('registration_engine.provider.check_imds_endpoint')
+def test_check_aws_imds_ipv6_v2_success(mock_check):
+    """Test AWS IMDS falling back to IPv6 after complete IPv4 failure."""
+    mock_check.side_effect = [
+        (False, ''),       # IPv4 IMDSv2 PUT fails
+        (False, ''),       # IPv4 IMDSv1 GET fails
+        (True, 'token'),   # IPv6 IMDSv2 PUT succeeds
+        (True, ''),        # IPv6 IMDSv2 GET succeeds
+    ]
+
+    assert provider.check_aws_imds() is True
+    assert mock_check.call_count == 4
 
 
 @patch(

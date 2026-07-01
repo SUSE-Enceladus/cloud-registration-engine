@@ -117,56 +117,78 @@ def detect_cloud_provider() -> str:
 
 
 def check_azure_imds() -> bool:
-    """Check Azure Instance Metadata Service.
+    """Check Azure IMDS endpoint (IPv4 and IPv4-mapped IPv6).
 
     Returns:
         True if running on Azure, False otherwise.
     """
-    url = 'http://169.254.169.254/metadata/instance?api-version=2021-02-01'
+    endpoints = ['169.254.169.254', '[::ffff:169.254.169.254]']
     headers = {'Metadata': 'true'}
-    success, _ = check_imds_endpoint(url, headers=headers)
-    return success
+
+    for ip in endpoints:
+        url = f'http://{ip}/metadata/instance?api-version=2021-02-01'
+        success, _ = check_imds_endpoint(url, headers=headers)
+        if success:
+            return True
+
+    return False
 
 
 def check_gcp_imds() -> bool:
-    """Check GCP Instance Metadata Service.
+    """Check GCP IMDS endpoint (DNS first for native IPv6 routing, then IPs).
 
     Returns:
         True if running on GCP, False otherwise.
     """
-    url = 'http://metadata.google.internal/computeMetadata/v1/'
+    endpoints = [
+        'metadata.google.internal',
+        '169.254.169.254',
+        '[::ffff:169.254.169.254]'
+    ]
     headers = {'Metadata-Flavor': 'Google'}
-    success, _ = check_imds_endpoint(url, headers=headers)
-    return success
+
+    for target in endpoints:
+        url = f'http://{target}/computeMetadata/v1/'
+        success, _ = check_imds_endpoint(url, headers=headers)
+        if success:
+            return True
+
+    return False
 
 
 def check_aws_imds() -> bool:
-    """Check AWS Instance Metadata Service (IMDSv2 with fallback to IMDSv1).
+    """Check AWS IMDS endpoint across IPv4 and native IPv6.
 
     Returns:
         True if running on AWS, False otherwise.
     """
-    # 1. Try IMDSv2 first by requesting a token via PUT
-    token_url = 'http://169.254.169.254/latest/api/token'
+    endpoints = ['169.254.169.254', '[fd00:ec2::254]']
     token_headers = {'X-aws-ec2-metadata-token-ttl-seconds': '60'}
 
-    token_success, token = check_imds_endpoint(
-        token_url, headers=token_headers, method='PUT'
-    )
-
-    if token_success and token:
-        # 2. If token is retrieved, use it to query metadata
-        metadata_url = 'http://169.254.169.254/latest/meta-data/'
-        metadata_headers = {'X-aws-ec2-metadata-token': token}
-        success, _ = check_imds_endpoint(
-            metadata_url, headers=metadata_headers
+    for ip in endpoints:
+        # 1. Try IMDSv2 first by requesting a token via PUT
+        token_url = f'http://{ip}/latest/api/token'
+        token_success, token = check_imds_endpoint(
+            token_url, headers=token_headers, method='PUT'
         )
-        return success
 
-    # 3. Fallback to IMDSv1 if token request failed
-    url = 'http://169.254.169.254/latest/meta-data/'
-    success, _ = check_imds_endpoint(url)
-    return success
+        if token_success and token:
+            # 2. If token is retrieved, use it to query metadata
+            metadata_url = f'http://{ip}/latest/meta-data/'
+            metadata_headers = {'X-aws-ec2-metadata-token': token}
+            success, _ = check_imds_endpoint(
+                metadata_url, headers=metadata_headers
+            )
+            if success:
+                return True
+
+        # 3. Fallback to IMDSv1 if token request failed
+        url = f'http://{ip}/latest/meta-data/'
+        success, _ = check_imds_endpoint(url)
+        if success:
+            return True
+
+    return False
 
 
 def check_dmi_files() -> bool:
