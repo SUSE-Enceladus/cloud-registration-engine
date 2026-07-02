@@ -22,7 +22,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
-from azure.core.exceptions import AzureError
 
 from registration_engine.microsoft import fetch_extension_plan
 
@@ -31,9 +30,6 @@ from registration_engine.microsoft import fetch_extension_plan
 @patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_connection_chaos(mock_get, mock_sleep):
     """Chaos Test: Simulates extreme connection drops and network issues."""
-    mock_cred = MagicMock()
-    mock_cred.get_token.return_value.token = "fake-token"
-
     # Sequence of events:
     # 1. Connection dropped
     # 2. Timeout
@@ -51,7 +47,7 @@ def test_fetch_extension_plan_connection_chaos(mock_get, mock_sleep):
         ),
     ]
 
-    plan = fetch_extension_plan(mock_cred, "/sub/resource")
+    plan = fetch_extension_plan("fake-token", "/sub/resource")
 
     assert plan.publisher_id == "pub"
     assert mock_get.call_count == 4
@@ -66,9 +62,6 @@ def test_fetch_extension_plan_connection_chaos(mock_get, mock_sleep):
 @patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_rate_limiting_chaos(mock_get, mock_sleep):
     """Chaos Test: Simulates severe Azure ARM API rate limiting (429)."""
-    mock_cred = MagicMock()
-    mock_cred.get_token.return_value.token = "fake-token"
-
     # Simulate four 429 Rate Limits followed by a 200 Success
     mock_429 = MagicMock(status_code=429, text="Rate limit exceeded")
     mock_200 = MagicMock(
@@ -78,7 +71,7 @@ def test_fetch_extension_plan_rate_limiting_chaos(mock_get, mock_sleep):
 
     mock_get.side_effect = [mock_429, mock_429, mock_429, mock_429, mock_200]
 
-    plan = fetch_extension_plan(mock_cred, "/sub/resource")
+    plan = fetch_extension_plan("fake-token", "/sub/resource")
 
     assert plan.publisher_id == "pub"
     assert mock_get.call_count == 5
@@ -88,35 +81,6 @@ def test_fetch_extension_plan_rate_limiting_chaos(mock_get, mock_sleep):
     mock_sleep.assert_any_call(2.0)
     mock_sleep.assert_any_call(4.0)
     mock_sleep.assert_any_call(8.0)
-
-
-@patch("registration_engine.microsoft.time.sleep")
-@patch("registration_engine.microsoft.requests.get")
-def test_fetch_extension_plan_azure_error_chaos(mock_get, mock_sleep):
-    """Chaos Test: Simulates unexpected azure SDK/identity failures."""
-    mock_cred = MagicMock()
-
-    # Simulate get_token raising AzureError intermittently, then succeeding
-    mock_cred.get_token.side_effect = [
-        AzureError("MSAL authentication service is not responding"),
-        MagicMock(token="fake-token"),
-    ]
-
-    mock_resp = MagicMock(
-        status_code=200,
-        json=lambda: {"plan": {"publisher": "pub", "product": "prod", "name": "plan"}},
-    )
-    mock_get.return_value = mock_resp
-
-    plan = fetch_extension_plan(mock_cred, "/sub/resource")
-
-    assert plan.publisher_id == "pub"
-    # First get_token call failed, fetch_extension_plan caught the AzureError,
-    # retried, second get_token call worked, requests.get was executed once.
-    assert mock_cred.get_token.call_count == 2
-    assert mock_get.call_count == 1
-    assert mock_sleep.call_count == 1
-    mock_sleep.assert_any_call(1.0)
 
 
 @patch("registration_engine.microsoft.urllib.request.ProxyHandler")

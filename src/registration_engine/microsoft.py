@@ -28,8 +28,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
-from azure.core.exceptions import AzureError
-from azure.identity import WorkloadIdentityCredential
 
 from registration_engine.utils import get_logger
 
@@ -61,20 +59,49 @@ def _require_env(name: str) -> str:
     return val
 
 
-def _build_credential() -> WorkloadIdentityCredential:
-    """
-    Use WorkloadIdentityCredential.
+def get_workload_identity_token(scope: str = ARM_SCOPE) -> str:
+    """Retrieve an access token from Azure AD using Workload Identity.
 
-    Fail if environement variables are missing.
+    Fail if environment variables are missing or token exchange fails.
 
     Returns:
-        A WorkloadIdentityCredential instance with the token info.
+        The raw access token string.
     """
-    return WorkloadIdentityCredential(
-        tenant_id=_require_env("AZURE_TENANT_ID"),
-        client_id=_require_env("AZURE_CLIENT_ID"),
-        token_file_path=_require_env("AZURE_FEDERATED_TOKEN_FILE"),
-    )
+    tenant_id = _require_env("AZURE_TENANT_ID")
+    client_id = _require_env("AZURE_CLIENT_ID")
+    token_file_path = _require_env("AZURE_FEDERATED_TOKEN_FILE")
+
+    try:
+        with open(token_file_path, "r", encoding="utf-8") as f:
+            federated_token = f.read().strip()
+    except OSError as e:
+        log.error("Failed to read federated token file: %s", e)
+        raise RuntimeError(f"Failed to read federated token file: {e}") from e
+
+    token_url = f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
+    assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+    payload = {
+        "grant_type": "client_credentials",
+        "client_id": client_id,
+        "client_assertion_type": assertion_type,
+        "client_assertion": federated_token,
+        "scope": scope,
+    }
+
+    try:
+        resp = requests.post(token_url, data=payload, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+    except requests.RequestException as e:
+        log.error("Azure AD token request failed: %s", e)
+        raise RuntimeError(f"Azure AD token request failed: {e}") from e
+
+    access_token = data.get("access_token")
+    if not access_token:
+        log.error("Access token missing in OAuth response.")
+        raise RuntimeError("Access token missing in OAuth response")
+
+    return access_token
 
 
 @dataclass(frozen=True)
@@ -101,7 +128,7 @@ class Plan:
 
 
 def fetch_extension_plan(
-    credential: WorkloadIdentityCredential, extension_resource_id: str
+    token: str, extension_resource_id: str
 ) -> Plan:
     """Fetch extension plan block using ARM Identity.
 
@@ -109,7 +136,7 @@ def fetch_extension_plan(
     Non-retryable HTTP errors (401/403/404) fail-closed immediately.
 
     Args:
-        credential: Azure Management Bearer token
+        token: Azure Management Bearer token string
         extension_resource_id: Resource ID of the extension
 
     Returns:
@@ -121,12 +148,6 @@ def fetch_extension_plan(
     delay = 1.0
     for attempt in range(1, VERIFY_RETRY_MAX + 1):
         try:
-            try:
-                token = credential.get_token(ARM_SCOPE).token
-            except AzureError as ae:
-                last_err = ae
-                raise ae
-
             headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             resp = requests.get(url, headers=headers, timeout=10)
             if resp.status_code == 200:
@@ -146,7 +167,7 @@ def fetch_extension_plan(
                 raise RuntimeError(
                     f"Non-retryable ARM error {resp.status_code}: {resp.text[:500]}"
                 )
-        except (requests.RequestException, AzureError) as e:
+        except requests.RequestException as e:
             last_err = e
 
         log.warning(
@@ -274,9 +295,9 @@ def verify_once() -> Plan:
     """
     extension_resource_id = _require_env("EXTENSION_RESOURCE_ID")
     env_plan = Plan.from_env()
-    credential = _build_credential()
+    token = get_workload_identity_token()
 
-    authoritative = fetch_extension_plan(credential, extension_resource_id)
+    authoritative = fetch_extension_plan(token, extension_resource_id)
 
     if authoritative != env_plan:
         log.error(
