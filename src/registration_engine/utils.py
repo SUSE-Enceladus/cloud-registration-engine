@@ -33,10 +33,10 @@ class RegistrationFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
-        if not hasattr(record, 'newline'):
-            record.newline = '\n'
-        if not hasattr(record, 'provider'):
-            record.provider = 'unknown'
+        if not hasattr(record, "newline"):
+            record.newline = "\n"
+        if not hasattr(record, "provider"):
+            record.provider = "unknown"
         return super().format(record)
 
 
@@ -60,21 +60,18 @@ def get_logger(debug: bool = False) -> logging.Logger:
         log_path = os.path.expanduser("~/registration_engine.log")
         try:
             file_handler = RotatingFileHandler(
-                log_path,
-                maxBytes=10 * 1024 * 1024,
-                backupCount=5
+                log_path, maxBytes=10 * 1024 * 1024, backupCount=5
             )
         except Exception:
             # Fallback to local directory if ~ is not writable
             file_handler = RotatingFileHandler(
                 "registration_engine.log",
                 maxBytes=10 * 1024 * 1024,
-                backupCount=5
+                backupCount=5,
             )
 
         fmt = (
-            "%(levelname)s %(asctime)s %(name)s:%(provider)s"
-            "%(newline)s    %(message)s"
+            "%(levelname)s %(asctime)s %(name)s:%(provider)s%(newline)s    %(message)s"
         )
         formatter = RegistrationFormatter(fmt)
         file_handler.setFormatter(formatter)

@@ -45,7 +45,7 @@ sys.modules["cloudregister.defaults"] = mock_defaults_module
 from registration_engine.smt import (  # noqa: E402
     get_update_servers,
     get_responding_update_server,
-    get_target_update_server
+    get_target_update_server,
 )
 
 

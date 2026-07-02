@@ -83,11 +83,7 @@ def test_fetch_extension_plan_success(mock_get):
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "plan": {
-            "publisher": "pub",
-            "product": "prod",
-            "name": "plan-id"
-        }
+        "plan": {"publisher": "pub", "product": "prod", "name": "plan-id"}
     }
     mock_get.return_value = mock_resp
 
@@ -152,11 +148,7 @@ def test_fetch_extension_plan_transient_retry_success(mock_get, mock_sleep):
     mock_resp_200 = MagicMock()
     mock_resp_200.status_code = 200
     mock_resp_200.json.return_value = {
-        "plan": {
-            "publisher": "pub",
-            "product": "prod",
-            "name": "plan"
-        }
+        "plan": {"publisher": "pub", "product": "prod", "name": "plan"}
     }
 
     mock_get.side_effect = [mock_resp_500, mock_resp_200]

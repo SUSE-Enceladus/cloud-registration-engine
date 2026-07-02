@@ -44,18 +44,13 @@ def test_check_imds_endpoint_unicode_decode_chaos(mock_urlopen):
 def test_check_dmidecode_timeout_chaos(mock_run):
     """Chaos Test: Verify that hanging dmidecode subprocess is handled."""
     # Simulate a subprocess TimeoutExpired exception
-    mock_run.side_effect = subprocess.TimeoutExpired(
-        cmd=["dmidecode"], timeout=5
-    )
+    mock_run.side_effect = subprocess.TimeoutExpired(cmd=["dmidecode"], timeout=5)
 
     # Should handle timeout gracefully and return None (fallback failed)
     assert provider.check_dmidecode() is None
 
 
-@patch(
-    "builtins.open",
-    side_effect=PermissionError("SELinux Access Denied")
-)
+@patch("builtins.open", side_effect=PermissionError("SELinux Access Denied"))
 def test_check_dmi_files_permission_chaos(mock_open_file):
     """Chaos Test: Verify read permission errors are handled."""
     # Should handle PermissionError gracefully and return None.

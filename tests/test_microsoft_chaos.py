@@ -45,13 +45,9 @@ def test_fetch_extension_plan_connection_chaos(mock_get, mock_sleep):
         MagicMock(
             status_code=200,
             json=lambda: {
-                "plan": {
-                    "publisher": "pub",
-                    "product": "prod",
-                    "name": "plan"
-                }
-            }
-        )
+                "plan": {"publisher": "pub", "product": "prod", "name": "plan"}
+            },
+        ),
     ]
 
     plan = fetch_extension_plan(mock_cred, "/sub/resource")
@@ -76,13 +72,7 @@ def test_fetch_extension_plan_rate_limiting_chaos(mock_get, mock_sleep):
     mock_429 = MagicMock(status_code=429, text="Rate limit exceeded")
     mock_200 = MagicMock(
         status_code=200,
-        json=lambda: {
-            "plan": {
-                "publisher": "pub",
-                "product": "prod",
-                "name": "plan"
-            }
-        }
+        json=lambda: {"plan": {"publisher": "pub", "product": "prod", "name": "plan"}},
     )
 
     mock_get.side_effect = [mock_429, mock_429, mock_429, mock_429, mock_200]
@@ -108,18 +98,12 @@ def test_fetch_extension_plan_azure_error_chaos(mock_get, mock_sleep):
     # Simulate get_token raising AzureError intermittently, then succeeding
     mock_cred.get_token.side_effect = [
         AzureError("MSAL authentication service is not responding"),
-        MagicMock(token="fake-token")
+        MagicMock(token="fake-token"),
     ]
 
     mock_resp = MagicMock(
         status_code=200,
-        json=lambda: {
-            "plan": {
-                "publisher": "pub",
-                "product": "prod",
-                "name": "plan"
-            }
-        }
+        json=lambda: {"plan": {"publisher": "pub", "product": "prod", "name": "plan"}},
     )
     mock_get.return_value = mock_resp
 

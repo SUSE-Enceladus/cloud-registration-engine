@@ -23,7 +23,7 @@ from unittest.mock import MagicMock, patch
 
 from registration_engine.connection import (
     get_preferred_ip,
-    test_connection as conn_attempt
+    test_connection as conn_attempt,
 )
 
 
@@ -47,10 +47,7 @@ def test_connection_ipv4_fallback_wins(mock_sleep, mock_socket_class):
 
     mock_sock_v4 = MagicMock()
 
-    mock_socket_class.return_value.__enter__.side_effect = [
-        mock_sock_v6,
-        mock_sock_v4
-    ]
+    mock_socket_class.return_value.__enter__.side_effect = [mock_sock_v6, mock_sock_v4]
 
     res = get_preferred_ip("2001:db8::1", "192.168.1.1")
     assert res == "192.168.1.1"
@@ -70,9 +67,7 @@ def test_connection_both_fail_chaos(mock_sleep, mock_socket_class):
 
 @patch("registration_engine.connection.socket.socket")
 @patch("registration_engine.connection.time.sleep")
-def test_connection_aborted_early_if_winner_exists(
-    mock_sleep, mock_socket_class
-):
+def test_connection_aborted_early_if_winner_exists(mock_sleep, mock_socket_class):
     """Test connection is aborted early if another thread already won."""
     winner = ["2001:db8::1"]
 

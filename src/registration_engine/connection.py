@@ -23,9 +23,7 @@ import threading
 import time
 
 
-def test_connection(
-    ip: str, port: int, family: int, delay: float, winner: list
-):
+def test_connection(ip: str, port: int, family: int, delay: float, winner: list):
     """Attempts a TCP socket connection after a specified delay."""
     if delay > 0:
         time.sleep(delay)
@@ -54,11 +52,11 @@ def get_preferred_ip(ipv6: str, ipv4: str, port: int = 443) -> str:
     # Give IPv6 a 250ms head start (0.25 seconds)
     v6_thread = threading.Thread(
         target=test_connection,
-        args=(ipv6, port, socket.AF_INET6, 0.0, winner)
+        args=(ipv6, port, socket.AF_INET6, 0.0, winner),
     )
     v4_thread = threading.Thread(
         target=test_connection,
-        args=(ipv4, port, socket.AF_INET, 0.25, winner)
+        args=(ipv4, port, socket.AF_INET, 0.25, winner),
     )
 
     v6_thread.start()
