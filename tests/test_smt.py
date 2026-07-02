@@ -35,9 +35,7 @@ def test_get_update_servers_null_data_chaos():
     assert result == []
 
 
-def test_get_update_servers_cache_failure_chaos(
-    mock_smt_class, mock_reg_utils_module
-):
+def test_get_update_servers_cache_failure_chaos(mock_smt_class, mock_reg_utils_module):
     """Chaos Test: Disk/cache write failure does not crash discovery."""
     cfg = MagicMock()
     # Simulate list of 1 child node in xml
@@ -62,9 +60,7 @@ def test_get_update_servers_cache_failure_chaos(
     mock_reg_utils_module.store_smt_data.side_effect = None
 
 
-def test_get_responding_update_server_loop_exception_chaos(
-    mock_reg_utils_module
-):
+def test_get_responding_update_server_loop_exception_chaos(mock_reg_utils_module):
     """Chaos Test: Individual server check failures do not abort loop."""
     # Create two mock servers
     srv1 = MagicMock()
