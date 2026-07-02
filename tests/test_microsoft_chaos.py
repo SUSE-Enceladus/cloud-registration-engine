@@ -20,6 +20,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
 import requests
 from azure.core.exceptions import AzureError
 
@@ -116,3 +117,77 @@ def test_fetch_extension_plan_azure_error_chaos(mock_get, mock_sleep):
     assert mock_get.call_count == 1
     assert mock_sleep.call_count == 1
     mock_sleep.assert_any_call(1.0)
+
+
+@patch("registration_engine.microsoft.urllib.request.ProxyHandler")
+@patch("registration_engine.microsoft.urllib.request.build_opener")
+def test_imds_proxy_bypass_and_success(mock_build_opener, mock_proxy_handler):
+    """Chaos Test: Verify IMDS queries explicitly bypass proxy variables."""
+    from registration_engine.microsoft import get_latest_api_version
+
+    mock_opener = MagicMock()
+    mock_build_opener.return_value = mock_opener
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = b'{"apiVersions": ["2018-02-01", "2021-02-01"]}'
+    mock_response.__enter__.return_value = mock_response
+    mock_opener.open.return_value = mock_response
+
+    api_version = get_latest_api_version()
+
+    assert api_version == "2021-02-01"
+    # Verify ProxyHandler was called with {} to enforce proxy bypass
+    mock_proxy_handler.assert_called_once_with({})
+
+
+@patch("registration_engine.microsoft.urllib.request.build_opener")
+def test_get_latest_api_version_missing_versions_chaos(mock_build_opener):
+    """Chaos Test: Raise ValueError if versions list is empty."""
+    from registration_engine.microsoft import get_latest_api_version
+
+    mock_opener = MagicMock()
+    mock_build_opener.return_value = mock_opener
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = b'{"apiVersions": []}'
+    mock_response.__enter__.return_value = mock_response
+    mock_opener.open.return_value = mock_response
+
+    with pytest.raises(ValueError, match="No API versions returned"):
+        get_latest_api_version()
+
+
+@patch("registration_engine.microsoft.urllib.request.build_opener")
+def test_get_compute_metadata_missing_subscription_id_chaos(mock_build_opener):
+    """Chaos Test: Raise ValueError if subscriptionId is missing in IMDS compute."""
+    from registration_engine.microsoft import get_compute_metadata
+
+    mock_opener = MagicMock()
+    mock_build_opener.return_value = mock_opener
+
+    mock_response = MagicMock()
+    # Missing subscriptionId
+    mock_response.read.return_value = b'{"location": "eastus"}'
+    mock_response.__enter__.return_value = mock_response
+    mock_opener.open.return_value = mock_response
+
+    with pytest.raises(ValueError, match="subscriptionId is missing"):
+        get_compute_metadata("2021-02-01")
+
+
+@patch("registration_engine.microsoft.urllib.request.build_opener")
+def test_get_attested_data_missing_signature_chaos(mock_build_opener):
+    """Chaos Test: Raise ValueError if signature is missing in IMDS attested."""
+    from registration_engine.microsoft import get_attested_data
+
+    mock_opener = MagicMock()
+    mock_build_opener.return_value = mock_opener
+
+    mock_response = MagicMock()
+    # Missing signature
+    mock_response.read.return_value = b'{"encoding": "pkcs7"}'
+    mock_response.__enter__.return_value = mock_response
+    mock_opener.open.return_value = mock_response
+
+    with pytest.raises(ValueError, match="signature is missing"):
+        get_attested_data("some-nonce", "2021-02-01")

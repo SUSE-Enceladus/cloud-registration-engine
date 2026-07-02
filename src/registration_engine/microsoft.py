@@ -18,8 +18,12 @@
 
 """Microsoft Workload Identity & Metadata Collection module."""
 
+import base64
+import hashlib
+import json
 import os
 import time
+import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -32,6 +36,8 @@ from registration_engine.utils import get_logger
 ARM_ENDPOINT = "https://management.azure.com"
 ARM_SCOPE = "https://management.azure.com/.default"
 EXT_API_VERSION = "2023-05-01"
+IMDS_BASE_URL = "http://169.254.169.254/metadata"
+HEADERS = {"Metadata": "true"}
 
 log = get_logger()
 
@@ -156,22 +162,63 @@ def fetch_extension_plan(
     raise RuntimeError(f"ARM verification exhausted retries: {last_err}")
 
 
+def _make_imds_request(url: str, timeout: int = 5) -> str:
+    """Helper to perform an IMDS HTTP request.
+
+    Explicitly bypasses any system-wide proxy variables.
+    """
+    req = urllib.request.Request(url, headers=HEADERS)
+    # Build a dedicated opener with empty ProxyHandler to enforce proxy bypass
+    proxy_support = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(proxy_support)
+
+    try:
+        with opener.open(req, timeout=timeout) as response:
+            return response.read().decode("utf-8")
+    except Exception as e:
+        log.error("IMDS request to %s failed: %s", url, e)
+        raise e
+
+
 def get_latest_api_version() -> str:
     """Query IMDS versions endpoint for the latest API string.
 
     Returns:
         Latest API version string
     """
-    pass
+    url = f"{IMDS_BASE_URL}/versions"
+    try:
+        response_body = _make_imds_request(url)
+        data = json.loads(response_body)
+        versions = data.get("apiVersions", [])
+        if not versions:
+            raise ValueError("No API versions returned from IMDS.")
+        return sorted(versions)[-1]
+    except Exception as e:
+        log.error("Error fetching API versions from IMDS: %s", e)
+        raise
 
 
-def get_compute_metadata() -> Dict[str, Any]:
+def get_compute_metadata(api_version: str) -> Dict[str, Any]:
     """Query compute IMDS and extract subscriptionId.
+
+    Args:
+        api_version: IMDS API version
 
     Returns:
         Metadata dictionary containing subscriptionId
     """
-    pass
+    url = f"{IMDS_BASE_URL}/instance/compute?api-version={api_version}"
+    try:
+        response_body = _make_imds_request(url)
+        compute_data = json.loads(response_body)
+        subscription_id = compute_data.get("subscriptionId")
+        if not subscription_id:
+            raise ValueError("subscriptionId is missing in IMDS compute metadata.")
+        return {"subscriptionId": subscription_id}
+    except Exception as e:
+        log.error("Error fetching compute metadata from IMDS: %s", e)
+        raise
 
 
 def generate_nonce(offer: str) -> str:
@@ -183,7 +230,13 @@ def generate_nonce(offer: str) -> str:
     Returns:
         32-character SHA-3-256 base64 encoded nonce string
     """
-    pass
+    try:
+        sha3_bytes = hashlib.sha3_256(offer.encode("utf-8")).digest()
+        b64_encoded = base64.urlsafe_b64encode(sha3_bytes).decode("utf-8")
+        return b64_encoded[:32]
+    except Exception as e:
+        log.error("Failed to generate nonce hash: %s", e)
+        raise
 
 
 def get_attested_data(nonce: str, api_version: str) -> Dict[str, Any]:
@@ -197,7 +250,19 @@ def get_attested_data(nonce: str, api_version: str) -> Dict[str, Any]:
         Dictionary containing pkcs7 signature, subscription ID and
         plain text nonce
     """
-    pass
+    url = (
+        f"{IMDS_BASE_URL}/attested/document?api-version={api_version}&nonce={nonce}"
+    )
+    try:
+        response_body = _make_imds_request(url)
+        attested_data = json.loads(response_body)
+        signature = attested_data.get("signature")
+        if not signature:
+            raise ValueError("signature is missing in IMDS attested document.")
+        return {"attestedData": {"signature": signature}}
+    except Exception as e:
+        log.error("Error fetching attested data from IMDS: %s", e)
+        raise
 
 
 def verify_once() -> Plan:
@@ -244,24 +309,17 @@ def get_verification_data() -> str:
 
     # Generate the URN (offer URN format: "publisher:offer:plan")
     offer_urn = (
-        f"{verified_plan.publisher_id}:"
-        f"{verified_plan.offer_id}:"
-        f"{verified_plan.plan_id}"
+        f"{verified_plan.publisher_id}:{verified_plan.offer_id}:{verified_plan.plan_id}"
     )
 
     api_version = get_latest_api_version()
+    metadata = get_compute_metadata(api_version)
     nonce = generate_nonce(offer_urn)
     attested = get_attested_data(nonce, api_version)
 
     # Wrap the signature, offer, and subscriptionId in standard XML format
-    sig_str = attested.get("signature", "")
-    sub_id = attested.get("subscriptionId", "")
+    verified_data = metadata | attested
+    verified_data["offer"] = offer_urn
 
-    xml_data = (
-        f"<verification>\n"
-        f"  <offer>{offer_urn}</offer>\n"
-        f"  <signature>{sig_str}</signature>\n"
-        f"  <subscriptionId>{sub_id}</subscriptionId>\n"
-        f"</verification>"
-    )
+    xml_data = f"<document>{json.dumps(verified_data)}</document>"
     return xml_data
