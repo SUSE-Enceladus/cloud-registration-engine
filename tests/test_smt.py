@@ -43,9 +43,9 @@ sys.modules["cloudregister.defaults"] = mock_defaults_module
 
 # 2. Now we can safely import registration_engine.smt module
 from registration_engine.smt import (  # noqa: E402
-    get_update_servers,
     get_responding_update_server,
     get_target_update_server,
+    get_update_servers,
 )
 
 

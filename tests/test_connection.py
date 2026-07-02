@@ -23,6 +23,8 @@ from unittest.mock import MagicMock, patch
 
 from registration_engine.connection import (
     get_preferred_ip,
+)
+from registration_engine.connection import (
     test_connection as conn_attempt,
 )
 

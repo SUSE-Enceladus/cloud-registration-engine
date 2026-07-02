@@ -19,21 +19,21 @@
 """SMT Server Discovery & Validation module."""
 
 import os
-from typing import List, Optional
-from lxml import etree
 from configparser import RawConfigParser
+from typing import List, Optional
+
+from cloudregister.defaults import AVAILABLE_SMT_SERVER_DATA_FILE_NAME
+from cloudregister.registerutils import (
+    fetch_smt_data,
+    get_state_dir,
+    https_only,
+    set_as_current_smt,
+    store_smt_data,
+)
+from cloudregister.smt import SMT
+from lxml import etree
 
 from registration_engine.utils import get_logger
-
-from cloudregister.smt import SMT
-from cloudregister.registerutils import (
-    https_only,
-    store_smt_data,
-    get_state_dir,
-    set_as_current_smt,
-    fetch_smt_data,
-)
-from cloudregister.defaults import AVAILABLE_SMT_SERVER_DATA_FILE_NAME
 
 log = get_logger()
 
