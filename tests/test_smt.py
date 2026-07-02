@@ -18,31 +18,9 @@
 
 """Chaos and resilience tests for the SMT discovery module."""
 
-import sys
 from unittest.mock import MagicMock
 
-# 1. Dynamically mock the cloudregister SLES packages in sys.modules
-mock_smt_class = MagicMock()
-mock_smt_module = MagicMock()
-mock_smt_module.SMT = mock_smt_class
-
-mock_reg_utils_module = MagicMock()
-mock_reg_utils_module.https_only = MagicMock(return_value=True)
-mock_reg_utils_module.store_smt_data = MagicMock()
-mock_reg_utils_module.get_state_dir = MagicMock(return_value="/tmp")
-mock_reg_utils_module.set_as_current_smt = MagicMock()
-mock_reg_utils_module.fetch_smt_data = MagicMock()
-
-mock_defaults_module = MagicMock()
-mock_defaults_module.AVAILABLE_SMT_SERVER_DATA_FILE_NAME = "smt_%d.json"
-
-sys.modules["cloudregister"] = MagicMock()
-sys.modules["cloudregister.smt"] = mock_smt_module
-sys.modules["cloudregister.registerutils"] = mock_reg_utils_module
-sys.modules["cloudregister.defaults"] = mock_defaults_module
-
-# 2. Now we can safely import registration_engine.smt module
-from registration_engine.smt import (  # noqa: E402
+from registration_engine.smt import (
     get_responding_update_server,
     get_target_update_server,
     get_update_servers,
@@ -57,7 +35,9 @@ def test_get_update_servers_null_data_chaos():
     assert result == []
 
 
-def test_get_update_servers_cache_failure_chaos():
+def test_get_update_servers_cache_failure_chaos(
+    mock_smt_class, mock_reg_utils_module
+):
     """Chaos Test: Disk/cache write failure does not crash discovery."""
     cfg = MagicMock()
     # Simulate list of 1 child node in xml
@@ -82,7 +62,9 @@ def test_get_update_servers_cache_failure_chaos():
     mock_reg_utils_module.store_smt_data.side_effect = None
 
 
-def test_get_responding_update_server_loop_exception_chaos():
+def test_get_responding_update_server_loop_exception_chaos(
+    mock_reg_utils_module
+):
     """Chaos Test: Individual server check failures do not abort loop."""
     # Create two mock servers
     srv1 = MagicMock()
@@ -104,7 +86,9 @@ def test_get_responding_update_server_loop_exception_chaos():
     mock_reg_utils_module.set_as_current_smt.assert_called_with(srv2)
 
 
-def test_get_target_update_server_return_type_and_outage_chaos():
+def test_get_target_update_server_return_type_and_outage_chaos(
+    mock_smt_class, mock_reg_utils_module
+):
     """Chaos Test: Outages return None and success conforms to dict type."""
     cfg = MagicMock()
 

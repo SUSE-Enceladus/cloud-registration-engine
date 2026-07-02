@@ -18,10 +18,126 @@
 
 """Main entrypoint and event loop execution for the Registration Engine."""
 
+import random
+import time
+
+from cloudregister.registerutils import get_config
+
+from registration_engine.connection import get_preferred_ip
+from registration_engine.k8s import update_registration_secret
+from registration_engine.microsoft import get_verification_data, verify_once
+from registration_engine.provider import detect_cloud_provider
+from registration_engine.smt import get_target_update_server
+from registration_engine.utils import get_logger
+
+log = get_logger()
+
+BASE_INTERVAL = 64800
+JITTER_WINDOW = 3600
+
+
+def run_one_cycle() -> None:
+    """Run one full cycle of the registration verification workflow."""
+    # 1. Cloud Provider Detection
+    provider = detect_cloud_provider()
+    if provider != "microsoft":
+        log.warning(
+            "Host environment '%s' is not supported in this iteration. "
+            "Only Microsoft Azure is supported. Skipping cycle.",
+            provider
+        )
+        return
+
+    log.info(
+        "Microsoft Azure environment detected. "
+        "Initiating verification cycle."
+    )
+
+    # 2. Microsoft AD Workload Identity & Metadata Collection
+    try:
+        verified_plan = verify_once()
+        offer_urn = (
+            f"{verified_plan.publisher_id}:"
+            f"{verified_plan.offer_id}:"
+            f"{verified_plan.plan_id}"
+        )
+        verification_xml = get_verification_data(offer_urn)
+    except Exception as e:
+        log.error(
+            "Microsoft AD Workload Identity or Metadata Collection "
+            "failed: %s",
+            e
+        )
+        return
+
+    # 3. Configuration Loading
+    try:
+        cfg = get_config()
+    except Exception as e:
+        log.error("Failed to load regionserverclnt config: %s", e)
+        return
+
+    # 4. SMT Server Discovery & Validation
+    try:
+        target_smt = get_target_update_server(cfg)
+        if not target_smt:
+            log.error("Failed to resolve responding SMT server.")
+            return
+    except Exception as e:
+        log.error("SMT Discovery failed: %s", e)
+        return
+
+    # 5. Kubernetes State Persistence
+    try:
+        ipv4 = target_smt.get("ipv4", "")
+        ipv6 = target_smt.get("ipv6", "")
+        cert = target_smt.get("cert", "")
+
+        # Run Happy Eyeballs race to find the preferred routing IP
+        registration_ip = get_preferred_ip(ipv6, ipv4)
+        if not registration_ip:
+            log.error(
+                "Happy Eyeballs connection failed to resolve a preferred IP "
+                "from SMT IPv4 (%s) and IPv6 (%s). Aborting secret update.",
+                ipv4,
+                ipv6
+            )
+            return
+
+        log.info("Selected preferred registration IP: %s", registration_ip)
+        update_registration_secret(registration_ip, cert, verification_xml)
+        log.info("State persistence successful. Registration secret updated.")
+    except Exception as e:
+        log.error("Failed to persist state in Kubernetes secret: %s", e)
+        return
+
 
 def main() -> None:
     """Main function executing the 18-hour registration loop."""
-    pass
+    log.info("Starting Rancher PAYG Registration Engine event loop (PID 1).")
+
+    while True:
+        try:
+            run_one_cycle()
+        except Exception as e:
+            log.critical("Unhandled exception in loop cycle: %s", e)
+
+        # Calculate random jitter for the next cycle
+        jitter = random.randint(-JITTER_WINDOW, JITTER_WINDOW)
+        sleep_duration = BASE_INTERVAL + jitter
+
+        log.info(
+            "Cycle complete. Scheduling next execution in %d seconds "
+            "(approximately %.2f hours).",
+            sleep_duration,
+            sleep_duration / 3600.0
+        )
+
+        try:
+            time.sleep(sleep_duration)
+        except KeyboardInterrupt:
+            log.info("Event loop interrupted by user. Exiting.")
+            break
 
 
 if __name__ == "__main__":
