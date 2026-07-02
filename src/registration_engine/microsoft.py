@@ -19,12 +19,11 @@
 """Microsoft Workload Identity & Metadata Collection module."""
 
 import os
-import requests
 import time
-
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import requests
 from azure.core.exceptions import AzureError
 from azure.identity import WorkloadIdentityCredential
 
@@ -96,8 +95,7 @@ class Plan:
 
 
 def fetch_extension_plan(
-    credential: WorkloadIdentityCredential,
-    extension_resource_id: str
+    credential: WorkloadIdentityCredential, extension_resource_id: str
 ) -> Plan:
     """Fetch extension plan block using ARM Identity.
 
@@ -111,9 +109,7 @@ def fetch_extension_plan(
     Returns:
         Plan dictionary
     """
-    url = (
-        f"{ARM_ENDPOINT}{extension_resource_id}?api-version={EXT_API_VERSION}"
-    )
+    url = f"{ARM_ENDPOINT}{extension_resource_id}?api-version={EXT_API_VERSION}"
 
     last_err: Optional[Exception] = None
     delay = 1.0
@@ -125,10 +121,7 @@ def fetch_extension_plan(
                 last_err = ae
                 raise ae
 
-            headers = {
-                "Authorization": f"Bearer {token}",
-                "Accept": "application/json"
-            }
+            headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
             resp = requests.get(url, headers=headers, timeout=10)
             if resp.status_code == 200:
                 body = resp.json()
@@ -141,13 +134,11 @@ def fetch_extension_plan(
                 return Plan.from_arm(plan_block)
             if resp.status_code in (429, 500, 502, 503, 504):
                 last_err = RuntimeError(
-                    f"Transient ARM error {resp.status_code}: "
-                    f"{resp.text[:200]}"
+                    f"Transient ARM error {resp.status_code}: {resp.text[:200]}"
                 )
             else:
                 raise RuntimeError(
-                    f"Non-retryable ARM error {resp.status_code}: "
-                    f"{resp.text[:500]}"
+                    f"Non-retryable ARM error {resp.status_code}: {resp.text[:500]}"
                 )
         except (requests.RequestException, AzureError) as e:
             last_err = e
@@ -224,8 +215,7 @@ def verify_once() -> Plan:
 
     if authoritative != env_plan:
         log.error(
-            "Plan mismatch! ARM=%s ENV=%s - "
-            "possible tampering. Failing closed.",
+            "Plan mismatch! ARM=%s ENV=%s - possible tampering. Failing closed.",
             authoritative,
             env_plan,
         )

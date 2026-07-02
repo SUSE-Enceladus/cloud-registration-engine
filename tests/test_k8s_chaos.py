@@ -40,7 +40,7 @@ def test_update_registration_secret_conflict_and_success(
     mock_v1.read_namespaced_secret.return_value = MagicMock()
     mock_v1.patch_namespaced_secret.side_effect = [
         ApiException(status=409, reason="Conflict"),
-        MagicMock()
+        MagicMock(),
     ]
 
     update_registration_secret("10.0.0.1", "cert", {})
@@ -87,7 +87,7 @@ def test_update_registration_secret_socket_dropout_chaos(
     # First read raises raw ConnectionError. Second succeeds.
     mock_v1.read_namespaced_secret.side_effect = [
         ConnectionResetError("Connection reset by peer"),
-        MagicMock()
+        MagicMock(),
     ]
     mock_v1.patch_namespaced_secret.return_value = MagicMock()
 
@@ -115,7 +115,7 @@ def test_update_registration_secret_create_transient_error_chaos(
     # First create call raises transient 409 conflict, second succeeds.
     mock_v1.create_namespaced_secret.side_effect = [
         ApiException(status=409, reason="Conflict"),
-        MagicMock()
+        MagicMock(),
     ]
 
     update_registration_secret("10.0.0.1", "cert", {})

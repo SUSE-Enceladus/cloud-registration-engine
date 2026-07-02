@@ -22,7 +22,8 @@ import logging
 import os
 import tempfile
 from unittest.mock import patch
-from registration_engine.utils import get_logger, RegistrationFormatter
+
+from registration_engine.utils import RegistrationFormatter, get_logger
 
 
 def test_registration_formatter():
@@ -35,16 +36,16 @@ def test_registration_formatter():
         lineno=10,
         msg="test message",
         args=(),
-        exc_info=None
+        exc_info=None,
     )
     # By default, record shouldn't have 'newline' or 'provider' attributes
-    assert not hasattr(record, 'newline')
-    assert not hasattr(record, 'provider')
+    assert not hasattr(record, "newline")
+    assert not hasattr(record, "provider")
 
     # Formatting should inject default values
     formatter.format(record)
-    assert record.newline == '\n'
-    assert record.provider == 'unknown'
+    assert record.newline == "\n"
+    assert record.provider == "unknown"
 
 
 def test_get_logger_config():
@@ -55,7 +56,7 @@ def test_get_logger_config():
         os.makedirs(fake_home)
 
         log_file = os.path.join(fake_home, "registration_engine.log")
-        with patch('os.path.expanduser', return_value=log_file):
+        with patch("os.path.expanduser", return_value=log_file):
             # Clear handlers from any previous test runs to ensure fully run
             logger = logging.getLogger("registration-engine")
             logger.handlers.clear()

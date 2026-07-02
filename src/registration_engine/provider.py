@@ -27,17 +27,14 @@ from registration_engine.utils import get_logger
 
 logger = get_logger()
 
-PROVIDER_MICROSOFT = 'microsoft'
-PROVIDER_AMAZON = 'amazon'
-PROVIDER_GOOGLE = 'google'
-PROVIDER_UNKNOWN = 'unknown'
+PROVIDER_MICROSOFT = "microsoft"
+PROVIDER_AMAZON = "amazon"
+PROVIDER_GOOGLE = "google"
+PROVIDER_UNKNOWN = "unknown"
 
 
 def check_imds_endpoint(
-    url: str,
-    headers: dict[str, str] = None,
-    method: str = 'GET',
-    timeout: int = 2
+    url: str, headers: dict[str, str] = None, method: str = "GET", timeout: int = 2
 ) -> bool:
     """Utility function to make an HTTP request with a timeout.
 
@@ -55,10 +52,10 @@ def check_imds_endpoint(
     try:
         req = urllib.request.Request(url, headers=headers, method=method)
         with urllib.request.urlopen(req, timeout=timeout) as response:
-            body = response.read().decode('utf-8')
+            body = response.read().decode("utf-8")
             return response.status == 200, body
     except (urllib.error.URLError, socket.timeout, UnicodeDecodeError):
-        return False, ''
+        return False, ""
 
 
 def detect_cloud_provider() -> str:
@@ -67,51 +64,46 @@ def detect_cloud_provider() -> str:
     Returns:
         "microsoft", "amazon", "google", or "unknown".
     """
-    logger.info('Attempting IMDS detection...')
+    logger.info("Attempting IMDS detection...")
     if check_azure_imds():
         logger.info(
-            'Detected Microsoft Azure IMDS.',
-            extra={'provider': PROVIDER_MICROSOFT}
+            "Detected Microsoft Azure IMDS.", extra={"provider": PROVIDER_MICROSOFT}
         )
         return PROVIDER_MICROSOFT
     if check_gcp_imds():
         logger.info(
-            'Detected Google Cloud Platform IMDS.',
-            extra={'provider': PROVIDER_GOOGLE}
+            "Detected Google Cloud Platform IMDS.", extra={"provider": PROVIDER_GOOGLE}
         )
         return PROVIDER_GOOGLE
     if check_aws_imds():
         logger.info(
-            'Detected Amazon Web Services IMDS.',
-            extra={'provider': PROVIDER_AMAZON}
+            "Detected Amazon Web Services IMDS.", extra={"provider": PROVIDER_AMAZON}
         )
         return PROVIDER_AMAZON
 
-    logger.info(
-        'IMDS unreachable or timed out. Falling back to hardware info...'
-    )
+    logger.info("IMDS unreachable or timed out. Falling back to hardware info...")
 
     dmi_file_check = check_dmi_files()
     if dmi_file_check:
         logger.info(
-            'Detected provider via DMI files: %s',
+            "Detected provider via DMI files: %s",
             dmi_file_check,
-            extra={'provider': dmi_file_check}
+            extra={"provider": dmi_file_check},
         )
         return dmi_file_check
 
     dmidecode_check = check_dmidecode()
     if dmidecode_check:
         logger.info(
-            'Detected provider via dmidecode: %s',
+            "Detected provider via dmidecode: %s",
             dmidecode_check,
-            extra={'provider': dmidecode_check}
+            extra={"provider": dmidecode_check},
         )
         return dmidecode_check
 
     logger.info(
-        'Cloud provider detection failed. Unknown provider.',
-        extra={'provider': PROVIDER_UNKNOWN}
+        "Cloud provider detection failed. Unknown provider.",
+        extra={"provider": PROVIDER_UNKNOWN},
     )
     return PROVIDER_UNKNOWN
 
@@ -122,11 +114,11 @@ def check_azure_imds() -> bool:
     Returns:
         True if running on Azure, False otherwise.
     """
-    endpoints = ['169.254.169.254', '[::ffff:169.254.169.254]']
-    headers = {'Metadata': 'true'}
+    endpoints = ["169.254.169.254", "[::ffff:169.254.169.254]"]
+    headers = {"Metadata": "true"}
 
     for ip in endpoints:
-        url = f'http://{ip}/metadata/instance?api-version=2021-02-01'
+        url = f"http://{ip}/metadata/instance?api-version=2021-02-01"
         success, _ = check_imds_endpoint(url, headers=headers)
         if success:
             return True
@@ -141,14 +133,14 @@ def check_gcp_imds() -> bool:
         True if running on GCP, False otherwise.
     """
     endpoints = [
-        'metadata.google.internal',
-        '169.254.169.254',
-        '[::ffff:169.254.169.254]'
+        "metadata.google.internal",
+        "169.254.169.254",
+        "[::ffff:169.254.169.254]",
     ]
-    headers = {'Metadata-Flavor': 'Google'}
+    headers = {"Metadata-Flavor": "Google"}
 
     for target in endpoints:
-        url = f'http://{target}/computeMetadata/v1/'
+        url = f"http://{target}/computeMetadata/v1/"
         success, _ = check_imds_endpoint(url, headers=headers)
         if success:
             return True
@@ -162,28 +154,26 @@ def check_aws_imds() -> bool:
     Returns:
         True if running on AWS, False otherwise.
     """
-    endpoints = ['169.254.169.254', '[fd00:ec2::254]']
-    token_headers = {'X-aws-ec2-metadata-token-ttl-seconds': '60'}
+    endpoints = ["169.254.169.254", "[fd00:ec2::254]"]
+    token_headers = {"X-aws-ec2-metadata-token-ttl-seconds": "60"}
 
     for ip in endpoints:
         # 1. Try IMDSv2 first by requesting a token via PUT
-        token_url = f'http://{ip}/latest/api/token'
+        token_url = f"http://{ip}/latest/api/token"
         token_success, token = check_imds_endpoint(
-            token_url, headers=token_headers, method='PUT'
+            token_url, headers=token_headers, method="PUT"
         )
 
         if token_success and token:
             # 2. If token is retrieved, use it to query metadata
-            metadata_url = f'http://{ip}/latest/meta-data/'
-            metadata_headers = {'X-aws-ec2-metadata-token': token}
-            success, _ = check_imds_endpoint(
-                metadata_url, headers=metadata_headers
-            )
+            metadata_url = f"http://{ip}/latest/meta-data/"
+            metadata_headers = {"X-aws-ec2-metadata-token": token}
+            success, _ = check_imds_endpoint(metadata_url, headers=metadata_headers)
             if success:
                 return True
 
         # 3. Fallback to IMDSv1 if token request failed
-        url = f'http://{ip}/latest/meta-data/'
+        url = f"http://{ip}/latest/meta-data/"
         success, _ = check_imds_endpoint(url)
         if success:
             return True
@@ -198,20 +188,20 @@ def check_dmi_files() -> bool:
         True if information is successfully determined, False otherwise.
     """
     dmi_files = [
-        '/sys/class/dmi/id/sys_vendor',
-        '/sys/class/dmi/id/product_name',
-        '/sys/class/dmi/id/chassis_asset_tag'
+        "/sys/class/dmi/id/sys_vendor",
+        "/sys/class/dmi/id/product_name",
+        "/sys/class/dmi/id/chassis_asset_tag",
     ]
 
     for file_path in dmi_files:
         try:
-            with open(file_path, 'r') as f:
+            with open(file_path, "r") as f:
                 content = f.read().strip().lower()
-                if 'microsoft' in content or 'azure' in content:
+                if "microsoft" in content or "azure" in content:
                     return PROVIDER_MICROSOFT
-                elif 'amazon' in content or 'ec2' in content:
+                elif "amazon" in content or "ec2" in content:
                     return PROVIDER_AMAZON
-                elif 'google' in content:
+                elif "google" in content:
                     return PROVIDER_GOOGLE
         except OSError:
             continue
@@ -227,18 +217,18 @@ def check_dmidecode() -> bool:
     """
     try:
         result = subprocess.run(
-            ['dmidecode', '-s', 'system-manufacturer'],
+            ["dmidecode", "-s", "system-manufacturer"],
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=5
+            timeout=5,
         )
         if result.returncode == 0:
-            manufacturer = result.stdout.decode('utf-8').strip().lower()
-            if 'microsoft' in manufacturer or 'azure' in manufacturer:
+            manufacturer = result.stdout.decode("utf-8").strip().lower()
+            if "microsoft" in manufacturer or "azure" in manufacturer:
                 return PROVIDER_MICROSOFT
-            elif 'amazon' in manufacturer or 'ec2' in manufacturer:
+            elif "amazon" in manufacturer or "ec2" in manufacturer:
                 return PROVIDER_AMAZON
-            elif 'google' in manufacturer:
+            elif "google" in manufacturer:
                 return PROVIDER_GOOGLE
     except (FileNotFoundError, subprocess.SubprocessError):
         # The dmidecode binary is not installed, or command timed out/failed

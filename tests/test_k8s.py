@@ -30,9 +30,7 @@ from registration_engine.k8s import update_registration_secret
 
 @patch("registration_engine.k8s.client.CoreV1Api")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_patch_success(
-    mock_load_incluster, mock_v1_class
-):
+def test_update_registration_secret_patch_success(mock_load_incluster, mock_v1_class):
     """Test successful patch of existing secret."""
     mock_v1 = MagicMock()
     mock_v1_class.return_value = mock_v1
@@ -96,9 +94,7 @@ def test_update_registration_secret_create_success(
 
 @patch("registration_engine.k8s.config.load_kube_config")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_config_failed(
-    mock_load_incluster, mock_load_kube
-):
+def test_update_registration_secret_config_failed(mock_load_incluster, mock_load_kube):
     """Test load config raises exception."""
     mock_load_incluster.side_effect = Exception("No cluster")
     mock_load_kube.side_effect = Exception("No local kube config")
@@ -141,7 +137,7 @@ def test_update_registration_secret_custom_env_config(
     env_overrides = {
         "REGISTRATION_SECRET_NAME": "custom-secret",
         "REGISTRATION_SECRET_NAMESPACE": "custom-namespace",
-        "REG_CODE": "custom-reg-code"
+        "REG_CODE": "custom-reg-code",
     }
 
     with patch.dict(os.environ, env_overrides):

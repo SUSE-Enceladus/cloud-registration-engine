@@ -33,9 +33,7 @@ K8S_RETRY_BACKOFF = float(os.getenv("K8S_RETRY_BACKOFF", "2.0"))
 
 
 def update_registration_secret(
-    registration_ip: str,
-    cert: str,
-    instance_data: str | dict
+    registration_ip: str, cert: str, instance_data: str | dict
 ) -> None:
     """Store/patch compiled registration info back into K8s secret.
 
@@ -45,9 +43,7 @@ def update_registration_secret(
         instance_data: String or dictionary of collected instance data
     """
     secret_name = os.getenv("REGISTRATION_SECRET_NAME", "scc-registration")
-    namespace = os.getenv(
-        "REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system"
-    )
+    namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
 
     # Initialize kubernetes configuration
     try:
@@ -63,7 +59,7 @@ def update_registration_secret(
 
     reg_code = os.getenv(
         "REGISTRATION_CODE",
-        os.getenv("REG_CODE", os.getenv("REGCODE", ""))
+        os.getenv("REG_CODE", os.getenv("REGCODE", "")),
     )
 
     # Format instance_data to JSON string if it's not already a string
@@ -77,12 +73,12 @@ def update_registration_secret(
         "registrationUrl": registration_ip,
         "regCode": reg_code,
         "instanceData": instance_data_str,
-        "registrationUrlCert": cert
+        "registrationUrlCert": cert,
     }
 
     body = client.V1Secret(
         metadata=client.V1ObjectMeta(name=secret_name),
-        string_data=string_data
+        string_data=string_data,
     )
 
     last_err = None
@@ -91,29 +87,20 @@ def update_registration_secret(
         try:
             # Check if secret exists first
             v1.read_namespaced_secret(name=secret_name, namespace=namespace)
-            v1.patch_namespaced_secret(
-                name=secret_name,
-                namespace=namespace,
-                body=body
-            )
+            v1.patch_namespaced_secret(name=secret_name, namespace=namespace, body=body)
             logger.info(
-                "Successfully patched secret %s in namespace %s",
-                secret_name,
-                namespace
+                "Successfully patched secret %s in namespace %s", secret_name, namespace
             )
             return
         except client.exceptions.ApiException as error:
             if error.status == 404:
                 try:
                     body.type = "Opaque"
-                    v1.create_namespaced_secret(
-                        namespace=namespace,
-                        body=body
-                    )
+                    v1.create_namespaced_secret(namespace=namespace, body=body)
                     logger.info(
                         "Successfully created secret %s in namespace %s",
                         secret_name,
-                        namespace
+                        namespace,
                     )
                     return
                 except client.exceptions.ApiException as ce:
@@ -128,7 +115,7 @@ def update_registration_secret(
                     "Failed to access secret %s in namespace %s: %s",
                     secret_name,
                     namespace,
-                    error
+                    error,
                 )
                 raise error
         except Exception as ex:
@@ -144,6 +131,4 @@ def update_registration_secret(
             time.sleep(delay)
             delay *= K8S_RETRY_BACKOFF
 
-    raise RuntimeError(
-        f"Kubernetes secret update exhausted retries: {last_err}"
-    )
+    raise RuntimeError(f"Kubernetes secret update exhausted retries: {last_err}")

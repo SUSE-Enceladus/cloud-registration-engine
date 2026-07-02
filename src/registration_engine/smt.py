@@ -19,31 +19,26 @@
 """SMT Server Discovery & Validation module."""
 
 import os
-from typing import List, Optional
-from lxml import etree
 from configparser import RawConfigParser
+from typing import List, Optional
+
+from cloudregister.defaults import AVAILABLE_SMT_SERVER_DATA_FILE_NAME
+from cloudregister.registerutils import (
+    fetch_smt_data,
+    get_state_dir,
+    https_only,
+    set_as_current_smt,
+    store_smt_data,
+)
+from cloudregister.smt import SMT
+from lxml import etree
 
 from registration_engine.utils import get_logger
-
-from cloudregister.smt import SMT
-from cloudregister.registerutils import (
-    https_only,
-    store_smt_data,
-    get_state_dir,
-    set_as_current_smt,
-    fetch_smt_data
-)
-from cloudregister.defaults import (
-    AVAILABLE_SMT_SERVER_DATA_FILE_NAME
-)
 
 log = get_logger()
 
 
-def get_update_servers(
-    region_smt_data: etree,
-    cfg: RawConfigParser
-) -> List[SMT]:
+def get_update_servers(region_smt_data: etree, cfg: RawConfigParser) -> List[SMT]:
     """Return available update servers in a list.
 
     Args:
@@ -67,17 +62,12 @@ def get_update_servers(
         try:
             store_smt_data(
                 os.path.join(
-                    get_state_dir(),
-                    AVAILABLE_SMT_SERVER_DATA_FILE_NAME % count
+                    get_state_dir(), AVAILABLE_SMT_SERVER_DATA_FILE_NAME % count
                 ),
                 smt_server,
             )
         except Exception as e:
-            log.warning(
-                "Failed to store SMT server %d to state cache: %s",
-                count,
-                e
-            )
+            log.warning("Failed to store SMT server %d to state cache: %s", count, e)
 
     return region_smt_servers
 
@@ -101,28 +91,18 @@ def get_responding_update_server(
 
     for smt_srv in region_smt_servers:
         try:
-            tested_smt_servers.append(
-                (smt_srv.get_ipv4(), smt_srv.get_ipv6())
-            )
+            tested_smt_servers.append((smt_srv.get_ipv4(), smt_srv.get_ipv6()))
             if smt_srv.is_responsive():
                 set_as_current_smt(smt_srv)
                 return smt_srv
         except Exception as e:
-            log.warning(
-                "Error checking responsiveness on SMT server: %s",
-                e
-            )
+            log.warning("Error checking responsiveness on SMT server: %s", e)
 
-    log.error(
-        'No response from: %s',
-        format(tested_smt_servers)
-    )
+    log.error("No response from: %s", format(tested_smt_servers))
     return None
 
 
-def get_target_update_server(
-    cfg: RawConfigParser
-) -> Optional[dict[str, str]]:
+def get_target_update_server(cfg: RawConfigParser) -> Optional[dict[str, str]]:
     """Returns the IP and cert for the first responding SMT server.
 
     Args:
@@ -145,16 +125,16 @@ def get_target_update_server(
         return None
 
     log.info(
-        'Responding update server located: %s / %s',
+        "Responding update server located: %s / %s",
         responding_server.get_ipv4(),
-        responding_server.get_ipv6()
+        responding_server.get_ipv6(),
     )
 
     try:
         return {
             "ipv4": responding_server.get_ipv4(),
             "ipv6": responding_server.get_ipv6(),
-            "cert": responding_server.get_cert()
+            "cert": responding_server.get_cert(),
         }
     except Exception as e:
         log.error("Failed to extract IP/cert from responding SMT: %s", e)
