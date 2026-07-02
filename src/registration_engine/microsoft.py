@@ -230,15 +230,38 @@ def verify_once() -> Plan:
     return authoritative
 
 
-def get_verification_data(offer: str) -> str:
-    """
-    Retrieve the attested data with the authoritive plan information
-    for workload verification.
+def get_verification_data() -> str:
+    """Retrieve the attested data with the authoritative plan information.
 
-    Args:
-        offer: Offer URN
+    Performs Microsoft Workload Identity plan verification internally, hashes the plan
+    URN to a 32-character base64 nonce, queries the IMDS attested endpoint, and
+    formats the signature and subscription metadata into an XML string.
 
     Returns:
-        An xml formatted verification string.
+        An XML formatted verification string.
     """
-    pass
+    verified_plan = verify_once()
+
+    # Generate the URN (offer URN format: "publisher:offer:plan")
+    offer_urn = (
+        f"{verified_plan.publisher_id}:"
+        f"{verified_plan.offer_id}:"
+        f"{verified_plan.plan_id}"
+    )
+
+    api_version = get_latest_api_version()
+    nonce = generate_nonce(offer_urn)
+    attested = get_attested_data(nonce, api_version)
+
+    # Wrap the signature, offer, and subscriptionId in standard XML format
+    sig_str = attested.get("signature", "")
+    sub_id = attested.get("subscriptionId", "")
+
+    xml_data = (
+        f"<verification>\n"
+        f"  <offer>{offer_urn}</offer>\n"
+        f"  <signature>{sig_str}</signature>\n"
+        f"  <subscriptionId>{sub_id}</subscriptionId>\n"
+        f"</verification>"
+    )
+    return xml_data
