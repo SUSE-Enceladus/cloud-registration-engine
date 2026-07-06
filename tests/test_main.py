@@ -51,7 +51,7 @@ def test_run_one_cycle_microsoft_success(
     mock_smt.return_value = {
         "ipv4": "10.0.0.5",
         "ipv6": "2001:db8::1",
-        "cert": "pem-cert"
+        "cert": "pem-cert",
     }
     mock_preferred.return_value = "10.0.0.5"
 
@@ -62,17 +62,13 @@ def test_run_one_cycle_microsoft_success(
     mock_config.assert_called_once()
     mock_smt.assert_called_once()
     mock_preferred.assert_called_once_with("2001:db8::1", "10.0.0.5")
-    mock_k8s.assert_called_once_with(
-        "10.0.0.5", "pem-cert", "<xml>verification</xml>"
-    )
+    mock_k8s.assert_called_once_with("10.0.0.5", "pem-cert", "<xml>verification</xml>")
 
 
 @patch("registration_engine.main.detect_cloud_provider")
 @patch("registration_engine.main.get_verification_data")
 @patch("registration_engine.main.get_config")
-def test_run_one_cycle_get_verification_data_failed(
-    mock_config, mock_xml, mock_detect
-):
+def test_run_one_cycle_get_verification_data_failed(mock_config, mock_xml, mock_detect):
     """Test graceful abort on verification failures."""
     mock_detect.return_value = "microsoft"
     mock_xml.side_effect = RuntimeError("TAMPERED")
@@ -100,7 +96,7 @@ def test_run_one_cycle_preferred_ip_failed(
     mock_smt.return_value = {
         "ipv4": "10.0.0.5",
         "ipv6": "2001:db8::1",
-        "cert": "pem-cert"
+        "cert": "pem-cert",
     }
     # Both IPs fail connection
     mock_preferred.return_value = None

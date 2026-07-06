@@ -44,24 +44,17 @@ def run_one_cycle() -> None:
         log.warning(
             "Host environment '%s' is not supported in this iteration. "
             "Only Microsoft Azure is supported. Skipping cycle.",
-            provider
+            provider,
         )
         return
 
-    log.info(
-        "Microsoft Azure environment detected. "
-        "Initiating verification cycle."
-    )
+    log.info("Microsoft Azure environment detected. Initiating verification cycle.")
 
     # 2. Microsoft AD Workload Identity & Metadata Collection
     try:
         verification_xml = get_verification_data()
     except Exception as e:
-        log.error(
-            "Microsoft AD Workload Identity or Metadata Collection "
-            "failed: %s",
-            e
-        )
+        log.error("Microsoft AD Workload Identity or Metadata Collection failed: %s", e)
         return
 
     # 3. Configuration Loading
@@ -94,7 +87,7 @@ def run_one_cycle() -> None:
                 "Happy Eyeballs connection failed to resolve a preferred IP "
                 "from SMT IPv4 (%s) and IPv6 (%s). Aborting secret update.",
                 ipv4,
-                ipv6
+                ipv6,
             )
             return
 
@@ -124,7 +117,7 @@ def main() -> None:
             "Cycle complete. Scheduling next execution in %d seconds "
             "(approximately %.2f hours).",
             sleep_duration,
-            sleep_duration / 3600.0
+            sleep_duration / 3600.0,
         )
 
         try:
