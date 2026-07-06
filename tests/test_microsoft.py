@@ -25,9 +25,9 @@ import pytest
 
 from registration_engine.microsoft import (
     Plan,
-    _build_credential,
     _require_env,
     fetch_extension_plan,
+    get_workload_identity_token,
     verify_once,
 )
 
@@ -49,37 +49,112 @@ def test_require_env_missing():
             _require_env("TEST_KEY")
 
 
-@patch("registration_engine.microsoft.WorkloadIdentityCredential")
-def test_build_credential_success(mock_cred_class):
-    """Test _build_credential successfully creates credential."""
+@patch("registration_engine.microsoft.requests.post")
+@patch("builtins.open", new_callable=MagicMock)
+def test_get_workload_identity_token_success(mock_open, mock_post):
+    """Test get_workload_identity_token successfully retrieves token."""
+    env_vars = {
+        "AZURE_TENANT_ID": "tenant-id",
+        "AZURE_CLIENT_ID": "client-id",
+        "AZURE_FEDERATED_TOKEN_FILE": "/path/to/token",
+    }
+    mock_file = MagicMock()
+    mock_file.read.return_value = "federated-jwt-token"
+    mock_open.return_value.__enter__.return_value = mock_file
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"access_token": "retrieved-azure-token"}
+    mock_post.return_value = mock_resp
+
+    with patch.dict(os.environ, env_vars):
+        token = get_workload_identity_token()
+        assert token == "retrieved-azure-token"
+
+    mock_open.assert_called_once_with("/path/to/token", "r", encoding="utf-8")
+    assertion_type = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
+    mock_post.assert_called_once_with(
+        "https://login.microsoftonline.com/tenant-id/oauth2/v2.0/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": "client-id",
+            "client_assertion_type": assertion_type,
+            "client_assertion": "federated-jwt-token",
+            "scope": "https://management.azure.com/.default",
+        },
+        timeout=10,
+    )
+
+
+def test_get_workload_identity_token_missing_env():
+    """Test get_workload_identity_token raises RuntimeError on missing env."""
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(RuntimeError):
+            get_workload_identity_token()
+
+
+@patch("builtins.open", side_effect=OSError("Permission denied"))
+def test_get_workload_identity_token_file_error(mock_open):
+    """Test get_workload_identity_token raises RuntimeError on file read error."""
     env_vars = {
         "AZURE_TENANT_ID": "tenant-id",
         "AZURE_CLIENT_ID": "client-id",
         "AZURE_FEDERATED_TOKEN_FILE": "/path/to/token",
     }
     with patch.dict(os.environ, env_vars):
-        _build_credential()
-        mock_cred_class.assert_called_once_with(
-            tenant_id="tenant-id",
-            client_id="client-id",
-            token_file_path="/path/to/token",
-        )
+        with pytest.raises(RuntimeError, match="Failed to read federated token file"):
+            get_workload_identity_token()
 
 
-@patch("registration_engine.microsoft.WorkloadIdentityCredential")
-def test_build_credential_missing_env(mock_cred_class):
-    """Test _build_credential raises RuntimeError on missing env."""
-    with patch.dict(os.environ, {}, clear=True):
-        with pytest.raises(RuntimeError):
-            _build_credential()
+@patch("registration_engine.microsoft.requests.post")
+@patch("builtins.open")
+def test_get_workload_identity_token_request_error(mock_open, mock_post):
+    """Test get_workload_identity_token raises RuntimeError on failed request."""
+    env_vars = {
+        "AZURE_TENANT_ID": "tenant-id",
+        "AZURE_CLIENT_ID": "client-id",
+        "AZURE_FEDERATED_TOKEN_FILE": "/path/to/token",
+    }
+    mock_file = MagicMock()
+    mock_file.read.return_value = "federated-jwt-token"
+    mock_open.return_value.__enter__.return_value = mock_file
+
+    import requests
+    mock_post.side_effect = requests.RequestException("Network error")
+
+    with patch.dict(os.environ, env_vars):
+        with pytest.raises(RuntimeError, match="Azure AD token request failed"):
+            get_workload_identity_token()
+
+
+@patch("registration_engine.microsoft.requests.post")
+@patch("builtins.open")
+def test_get_workload_identity_token_missing_token_in_json(mock_open, mock_post):
+    """Test get_workload_identity_token raises RuntimeError when response
+    lacks token.
+    """
+    env_vars = {
+        "AZURE_TENANT_ID": "tenant-id",
+        "AZURE_CLIENT_ID": "client-id",
+        "AZURE_FEDERATED_TOKEN_FILE": "/path/to/token",
+    }
+    mock_file = MagicMock()
+    mock_file.read.return_value = "federated-jwt-token"
+    mock_open.return_value.__enter__.return_value = mock_file
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"error": "some_error"}
+    mock_post.return_value = mock_resp
+
+    with patch.dict(os.environ, env_vars):
+        with pytest.raises(RuntimeError, match="Access token missing"):
+            get_workload_identity_token()
 
 
 @patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_success(mock_get):
     """Test fetch_extension_plan success."""
-    mock_cred = MagicMock()
-    mock_cred.get_token.return_value.token = "fake-token"
-
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
@@ -87,7 +162,7 @@ def test_fetch_extension_plan_success(mock_get):
     }
     mock_get.return_value = mock_resp
 
-    plan = fetch_extension_plan(mock_cred, "/sub/resource")
+    plan = fetch_extension_plan("fake-token", "/sub/resource")
 
     assert plan.publisher_id == "pub"
     assert plan.offer_id == "prod"
@@ -105,31 +180,25 @@ def test_fetch_extension_plan_success(mock_get):
 @patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_missing_plan_block(mock_get):
     """Test fetch_extension_plan fails when plan block is absent."""
-    mock_cred = MagicMock()
-    mock_cred.get_token.return_value.token = "fake-token"
-
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {"something": "else"}
     mock_get.return_value = mock_resp
 
     with pytest.raises(RuntimeError, match="has no plan{} block"):
-        fetch_extension_plan(mock_cred, "/sub/resource")
+        fetch_extension_plan("fake-token", "/sub/resource")
 
 
 @patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_non_retryable_error(mock_get):
     """Test fetch_extension_plan fails immediately on non-retryable error."""
-    mock_cred = MagicMock()
-    mock_cred.get_token.return_value.token = "fake-token"
-
     mock_resp = MagicMock()
     mock_resp.status_code = 403
     mock_resp.text = "Forbidden"
     mock_get.return_value = mock_resp
 
     with pytest.raises(RuntimeError, match="Non-retryable ARM error 403"):
-        fetch_extension_plan(mock_cred, "/sub/resource")
+        fetch_extension_plan("fake-token", "/sub/resource")
 
     assert mock_get.call_count == 1
 
@@ -138,9 +207,6 @@ def test_fetch_extension_plan_non_retryable_error(mock_get):
 @patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_transient_retry_success(mock_get, mock_sleep):
     """Test fetch_extension_plan retries on 500 and then succeeds."""
-    mock_cred = MagicMock()
-    mock_cred.get_token.return_value.token = "fake-token"
-
     mock_resp_500 = MagicMock()
     mock_resp_500.status_code = 500
     mock_resp_500.text = "Internal Error"
@@ -153,7 +219,7 @@ def test_fetch_extension_plan_transient_retry_success(mock_get, mock_sleep):
 
     mock_get.side_effect = [mock_resp_500, mock_resp_200]
 
-    plan = fetch_extension_plan(mock_cred, "/sub/resource")
+    plan = fetch_extension_plan("fake-token", "/sub/resource")
     assert plan.publisher_id == "pub"
     assert mock_get.call_count == 2
     mock_sleep.assert_called_once_with(1.0)
@@ -163,9 +229,6 @@ def test_fetch_extension_plan_transient_retry_success(mock_get, mock_sleep):
 @patch("registration_engine.microsoft.requests.get")
 def test_fetch_extension_plan_transient_retry_exhausted(mock_get, mock_sleep):
     """Test fetch_extension_plan retries and exhausts limits."""
-    mock_cred = MagicMock()
-    mock_cred.get_token.return_value.token = "fake-token"
-
     mock_resp_500 = MagicMock()
     mock_resp_500.status_code = 500
     mock_resp_500.text = "Internal Error"
@@ -173,14 +236,14 @@ def test_fetch_extension_plan_transient_retry_exhausted(mock_get, mock_sleep):
     mock_get.return_value = mock_resp_500
 
     with pytest.raises(RuntimeError, match="ARM verification exhausted"):
-        fetch_extension_plan(mock_cred, "/sub/resource")
+        fetch_extension_plan("fake-token", "/sub/resource")
 
     assert mock_get.call_count == 5
 
 
 @patch("registration_engine.microsoft.fetch_extension_plan")
-@patch("registration_engine.microsoft._build_credential")
-def test_verify_once_success(mock_build_cred, mock_fetch_plan):
+@patch("registration_engine.microsoft.get_workload_identity_token")
+def test_verify_once_success(mock_get_token, mock_fetch_plan):
     """Test verify_once matches plan and returns it."""
     env_vars = {
         "EXTENSION_RESOURCE_ID": "/sub/resource",
@@ -188,6 +251,7 @@ def test_verify_once_success(mock_build_cred, mock_fetch_plan):
         "MARKETPLACE_OFFER_ID": "offer",
         "MARKETPLACE_PLAN_ID": "plan",
     }
+    mock_get_token.return_value = "fake-token"
     mock_fetch_plan.return_value = Plan("pub", "offer", "plan")
 
     with patch.dict(os.environ, env_vars):
@@ -198,8 +262,8 @@ def test_verify_once_success(mock_build_cred, mock_fetch_plan):
 
 
 @patch("registration_engine.microsoft.fetch_extension_plan")
-@patch("registration_engine.microsoft._build_credential")
-def test_verify_once_mismatch(mock_build_cred, mock_fetch_plan):
+@patch("registration_engine.microsoft.get_workload_identity_token")
+def test_verify_once_mismatch(mock_get_token, mock_fetch_plan):
     """Test verify_once raises RuntimeError on plan mismatch."""
     env_vars = {
         "EXTENSION_RESOURCE_ID": "/sub/resource",
@@ -207,6 +271,7 @@ def test_verify_once_mismatch(mock_build_cred, mock_fetch_plan):
         "MARKETPLACE_OFFER_ID": "offer",
         "MARKETPLACE_PLAN_ID": "plan",
     }
+    mock_get_token.return_value = "fake-token"
     # Fetched plan doesn't match env plan (different plan name)
     mock_fetch_plan.return_value = Plan("pub", "offer", "different-plan")
 
