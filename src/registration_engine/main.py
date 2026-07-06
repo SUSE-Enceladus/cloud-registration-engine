@@ -25,7 +25,7 @@ from cloudregister.registerutils import get_config
 
 from registration_engine.connection import get_preferred_ip
 from registration_engine.k8s import update_registration_secret
-from registration_engine.microsoft import get_verification_data, verify_once
+from registration_engine.microsoft import get_verification_data
 from registration_engine.provider import detect_cloud_provider
 from registration_engine.smt import get_target_update_server
 from registration_engine.utils import get_logger
@@ -55,13 +55,7 @@ def run_one_cycle() -> None:
 
     # 2. Microsoft AD Workload Identity & Metadata Collection
     try:
-        verified_plan = verify_once()
-        offer_urn = (
-            f"{verified_plan.publisher_id}:"
-            f"{verified_plan.offer_id}:"
-            f"{verified_plan.plan_id}"
-        )
-        verification_xml = get_verification_data(offer_urn)
+        verification_xml = get_verification_data()
     except Exception as e:
         log.error(
             "Microsoft AD Workload Identity or Metadata Collection "

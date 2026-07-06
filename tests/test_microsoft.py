@@ -213,3 +213,97 @@ def test_verify_once_mismatch(mock_build_cred, mock_fetch_plan):
     with patch.dict(os.environ, env_vars):
         with pytest.raises(RuntimeError, match="Plan mismatch detected"):
             verify_once()
+
+
+@patch("registration_engine.microsoft.urllib.request.build_opener")
+def test_get_latest_api_version_success(mock_build_opener):
+    """Test get_latest_api_version parses sorted versions correctly."""
+    from registration_engine.microsoft import get_latest_api_version
+
+    mock_opener = MagicMock()
+    mock_build_opener.return_value = mock_opener
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = (
+        b'{"apiVersions": ["2018-02-01", "2023-01-01", "2021-02-01"]}'
+    )
+    mock_response.__enter__.return_value = mock_response
+    mock_opener.open.return_value = mock_response
+
+    assert get_latest_api_version() == "2023-01-01"
+
+
+@patch("registration_engine.microsoft.urllib.request.build_opener")
+def test_get_compute_metadata_success(mock_build_opener):
+    """Test get_compute_metadata extracts subscriptionId."""
+    from registration_engine.microsoft import get_compute_metadata
+
+    mock_opener = MagicMock()
+    mock_build_opener.return_value = mock_opener
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = b'{"subscriptionId": "sub-uuid-1234"}'
+    mock_response.__enter__.return_value = mock_response
+    mock_opener.open.return_value = mock_response
+
+    meta = get_compute_metadata("2021-02-01")
+    assert meta["subscriptionId"] == "sub-uuid-1234"
+
+
+def test_generate_nonce_success():
+    """Test generate_nonce hashes offer into 32-char urlsafe b64 string."""
+    from registration_engine.microsoft import generate_nonce
+
+    nonce = generate_nonce("suse:sles-15-sp7:premium")
+    assert isinstance(nonce, str)
+    assert len(nonce) == 32
+    # Verify urlsafe base64 character set
+    assert "/" not in nonce and "+" not in nonce
+
+
+@patch("registration_engine.microsoft.urllib.request.build_opener")
+def test_get_attested_data_success(mock_build_opener):
+    """Test get_attested_data retrieves signature."""
+    from registration_engine.microsoft import get_attested_data
+
+    mock_opener = MagicMock()
+    mock_build_opener.return_value = mock_opener
+
+    mock_response = MagicMock()
+    mock_response.read.return_value = b'{"signature": "pkcs7-signature-bytes"}'
+    mock_response.__enter__.return_value = mock_response
+    mock_opener.open.return_value = mock_response
+
+    attested = get_attested_data("fake-nonce", "2021-02-01")
+    assert attested["attestedData"]["signature"] == "pkcs7-signature-bytes"
+
+
+@patch("registration_engine.microsoft.get_attested_data")
+@patch("registration_engine.microsoft.generate_nonce")
+@patch("registration_engine.microsoft.get_compute_metadata")
+@patch("registration_engine.microsoft.get_latest_api_version")
+@patch("registration_engine.microsoft.verify_once")
+def test_get_verification_data_success(
+    mock_verify, mock_api_version, mock_meta, mock_nonce, mock_attested
+):
+    """Test unified get_verification_data workflow and XML layout."""
+    import json
+    from xml.etree import ElementTree
+
+    from registration_engine.microsoft import get_verification_data
+
+    mock_verify.return_value = Plan("pub-id", "off-id", "pl-id")
+    mock_api_version.return_value = "2021-02-01"
+    mock_meta.return_value = {"subscriptionId": "sub-123"}
+    mock_nonce.return_value = "hash-123"
+    mock_attested.return_value = {"attestedData": {"signature": "sig-123"}}
+
+    xml_str = get_verification_data()
+
+    # Parse and assert XML format and JSON document data
+    root = ElementTree.fromstring(xml_str)
+    assert root.tag == "document"
+    parsed_json = json.loads(root.text)
+    assert parsed_json["offer"] == "pub-id:off-id:pl-id"
+    assert parsed_json["subscriptionId"] == "sub-123"
+    assert parsed_json["attestedData"]["signature"] == "sig-123"
