@@ -24,7 +24,7 @@ import time
 from cloudregister.registerutils import get_config
 
 from registration_engine.connection import get_preferred_ip
-from registration_engine.k8s import update_registration_secret
+from registration_engine.k8s import update_registration_data
 from registration_engine.microsoft import get_verification_data
 from registration_engine.provider import detect_cloud_provider
 from registration_engine.smt import get_target_update_server
@@ -92,7 +92,7 @@ def run_one_cycle() -> None:
             return
 
         log.info("Selected preferred registration IP: %s", registration_ip)
-        update_registration_secret(registration_ip, cert, verification_xml)
+        update_registration_data(registration_ip, cert, verification_xml)
         log.info("State persistence successful. Registration secret updated.")
     except Exception as e:
         log.error("Failed to persist state in Kubernetes secret: %s", e)

@@ -32,7 +32,7 @@ K8S_RETRY_MAX = int(os.getenv("K8S_RETRY_MAX", "5"))
 K8S_RETRY_BACKOFF = float(os.getenv("K8S_RETRY_BACKOFF", "2.0"))
 
 
-def update_registration_secret(
+def update_registration_data(
     registration_ip: str, cert: str, instance_data: str | dict
 ) -> None:
     """Store/patch compiled registration info back into K8s secret.

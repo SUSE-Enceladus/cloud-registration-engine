@@ -25,12 +25,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from kubernetes.client.exceptions import ApiException
 
-from registration_engine.k8s import update_registration_secret
+from registration_engine.k8s import update_registration_data
 
 
 @patch("registration_engine.k8s.client.CoreV1Api")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_patch_success(mock_load_incluster, mock_v1_class):
+def test_update_registration_data_patch_success(mock_load_incluster, mock_v1_class):
     """Test successful patch of existing secret."""
     mock_v1 = MagicMock()
     mock_v1_class.return_value = mock_v1
@@ -40,7 +40,7 @@ def test_update_registration_secret_patch_success(mock_load_incluster, mock_v1_c
 
     # Call function
     instance_data = {"test_key": "test_val"}
-    update_registration_secret("10.0.0.1", "fake-cert", instance_data)
+    update_registration_data("10.0.0.1", "fake-cert", instance_data)
 
     mock_load_incluster.assert_called_once()
     mock_v1.read_namespaced_secret.assert_called_once_with(
@@ -61,7 +61,7 @@ def test_update_registration_secret_patch_success(mock_load_incluster, mock_v1_c
 @patch("registration_engine.k8s.client.CoreV1Api")
 @patch("registration_engine.k8s.config.load_kube_config")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_create_success(
+def test_update_registration_data_create_success(
     mock_load_incluster, mock_load_kube, mock_v1_class
 ):
     """Test successful creation when secret does not exist."""
@@ -77,7 +77,7 @@ def test_update_registration_secret_create_success(
 
     # Call function
     instance_data = {"test_key": "test_val"}
-    update_registration_secret("10.0.0.1", "fake-cert", instance_data)
+    update_registration_data("10.0.0.1", "fake-cert", instance_data)
 
     mock_load_kube.assert_called_once()
     mock_v1.read_namespaced_secret.assert_called_once_with(
@@ -94,19 +94,19 @@ def test_update_registration_secret_create_success(
 
 @patch("registration_engine.k8s.config.load_kube_config")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_config_failed(mock_load_incluster, mock_load_kube):
+def test_update_registration_data_config_failed(mock_load_incluster, mock_load_kube):
     """Test load config raises exception."""
     mock_load_incluster.side_effect = Exception("No cluster")
     mock_load_kube.side_effect = Exception("No local kube config")
 
     with pytest.raises(Exception, match="No local kube config"):
-        update_registration_secret("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "cert", {})
 
 
 @patch("registration_engine.k8s.time.sleep")
 @patch("registration_engine.k8s.client.CoreV1Api")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_api_error(
+def test_update_registration_data_api_error(
     mock_load_incluster, mock_v1_class, mock_sleep
 ):
     """Test API error 500 fails closed."""
@@ -119,14 +119,14 @@ def test_update_registration_secret_api_error(
     )
 
     with pytest.raises(RuntimeError, match="exhausted retries"):
-        update_registration_secret("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "cert", {})
 
     assert mock_sleep.call_count == 4
 
 
 @patch("registration_engine.k8s.client.CoreV1Api")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_custom_env_config(
+def test_update_registration_data_custom_env_config(
     mock_load_incluster, mock_v1_class
 ):
     """Test environment variable overrides."""
@@ -141,7 +141,7 @@ def test_update_registration_secret_custom_env_config(
     }
 
     with patch.dict(os.environ, env_overrides):
-        update_registration_secret("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "cert", {})
 
         mock_v1.read_namespaced_secret.assert_called_once_with(
             name="custom-secret", namespace="custom-namespace"
@@ -154,7 +154,7 @@ def test_update_registration_secret_custom_env_config(
 
 @patch("registration_engine.k8s.client.CoreV1Api")
 @patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_secret_instance_data_string(
+def test_update_registration_data_instance_data_string(
     mock_load_incluster, mock_v1_class
 ):
     """Test successful patch when instance_data is already a string."""
@@ -162,7 +162,7 @@ def test_update_registration_secret_instance_data_string(
     mock_v1_class.return_value = mock_v1
     mock_v1.read_namespaced_secret.return_value = MagicMock()
 
-    update_registration_secret("10.0.0.1", "cert", "raw_string_data")
+    update_registration_data("10.0.0.1", "cert", "raw_string_data")
 
     mock_v1.patch_namespaced_secret.assert_called_once()
     args, kwargs = mock_v1.patch_namespaced_secret.call_args
