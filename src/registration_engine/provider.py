@@ -18,6 +18,7 @@
 
 """Cloud Provider Detection module."""
 
+import os
 import socket
 import subprocess
 import urllib.error
@@ -187,10 +188,11 @@ def check_dmi_files() -> bool:
     Returns:
         True if information is successfully determined, False otherwise.
     """
+    base_dir = os.getenv("DMI_DIR_PATH", "/sys/class/dmi/id")
     dmi_files = [
-        "/sys/class/dmi/id/sys_vendor",
-        "/sys/class/dmi/id/product_name",
-        "/sys/class/dmi/id/chassis_asset_tag",
+        os.path.join(base_dir, "sys_vendor"),
+        os.path.join(base_dir, "product_name"),
+        os.path.join(base_dir, "chassis_asset_tag"),
     ]
 
     for file_path in dmi_files:

@@ -1,5 +1,6 @@
+import os
 import socket
-from unittest.mock import MagicMock, mock_open, patch
+from unittest.mock import MagicMock, patch
 
 from registration_engine import provider
 
@@ -116,24 +117,24 @@ def test_check_aws_imds_ipv6_v2_success(mock_check):
     assert mock_check.call_count == 4
 
 
-@patch("builtins.open", new_callable=mock_open, read_data="Microsoft Corporation")
-def test_check_dmi_files_azure(mock_file):
+def test_check_dmi_files_azure():
     """Test DMI file reading for Azure."""
-    result = provider.check_dmi_files()
-    assert result == provider.PROVIDER_MICROSOFT
+    with patch.dict(os.environ, {"DMI_DIR_PATH": "tests/data/dmi/azure"}):
+        result = provider.check_dmi_files()
+        assert result == provider.PROVIDER_MICROSOFT
 
 
-@patch("builtins.open", new_callable=mock_open, read_data="Amazon EC2")
-def test_check_dmi_files_aws(mock_file):
+def test_check_dmi_files_aws():
     """Test DMI file reading for AWS."""
-    result = provider.check_dmi_files()
-    assert result == provider.PROVIDER_AMAZON
+    with patch.dict(os.environ, {"DMI_DIR_PATH": "tests/data/dmi/aws"}):
+        result = provider.check_dmi_files()
+        assert result == provider.PROVIDER_AMAZON
 
 
-@patch("builtins.open", side_effect=FileNotFoundError)
-def test_check_dmi_files_not_found(mock_file):
+def test_check_dmi_files_not_found():
     """Test DMI file missing."""
-    assert provider.check_dmi_files() is None
+    with patch.dict(os.environ, {"DMI_DIR_PATH": "tests/data/dmi/nonexistent"}):
+        assert provider.check_dmi_files() is None
 
 
 @patch("registration_engine.provider.subprocess.run")
@@ -246,19 +247,13 @@ def test_check_aws_imds_all_fail(mock_check):
     assert provider.check_aws_imds() is False
 
 
-@patch("builtins.open")
-def test_check_dmi_files_amazon(mock_open_file):
+def test_check_dmi_files_amazon():
     """Test reading amazon/ec2 content from DMI files."""
-    mock_file = MagicMock()
-    mock_file.read.return_value = "EC2 Amazon Web Services"
-    mock_open_file.return_value.__enter__.return_value = mock_file
-    assert provider.check_dmi_files() == provider.PROVIDER_AMAZON
+    with patch.dict(os.environ, {"DMI_DIR_PATH": "tests/data/dmi/aws"}):
+        assert provider.check_dmi_files() == provider.PROVIDER_AMAZON
 
 
-@patch("builtins.open")
-def test_check_dmi_files_google(mock_open_file):
+def test_check_dmi_files_google():
     """Test reading google content from DMI files."""
-    mock_file = MagicMock()
-    mock_file.read.return_value = "Google Compute Engine"
-    mock_open_file.return_value.__enter__.return_value = mock_file
-    assert provider.check_dmi_files() == provider.PROVIDER_GOOGLE
+    with patch.dict(os.environ, {"DMI_DIR_PATH": "tests/data/dmi/gcp"}):
+        assert provider.check_dmi_files() == provider.PROVIDER_GOOGLE

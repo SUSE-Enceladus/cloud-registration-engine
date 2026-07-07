@@ -1,0 +1,61 @@
+# Copyright (c) 2026 SUSE LLC. All rights reserved.
+#
+# This file is part of registration-engine. registration-engine provides an
+# api and command line utilities for testing images in the Public Cloud.
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Lint & Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.10", "3.11", "3.12", "3.13", "3.14" ]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        run: |
+          pip install --upgrade pip
+          pip install poetry
+
+      - name: Install Dependencies
+        run: |
+          poetry install --no-interaction
+
+      - name: Run Lint and Formatting Checks
+        run: |
+          poetry run ruff check .
+
+      - name: Run Unit & Integration Tests
+        run: |
+          poetry run pytest
