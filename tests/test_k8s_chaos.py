@@ -16,57 +16,67 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Chaos and resilience tests for the k8s state persistence module."""
+"""Chaos and resilience tests for the Kubernetes State Persistence module."""
 
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-from kubernetes.client.exceptions import ApiException
+import requests
 
 from registration_engine.k8s import update_registration_data
 
+MOCK_ENV = {
+    "KUBERNETES_SERVICE_HOST": "127.0.0.1",
+    "KUBERNETES_SERVICE_PORT": "8443",
+    "KUBERNETES_TOKEN": "mocked-token",
+    "KUBERNETES_CA_CERT": "False",
+}
+
 
 @patch("registration_engine.k8s.time.sleep")
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
 def test_update_registration_data_conflict_and_success(
-    mock_load_incluster, mock_v1_class, mock_sleep
+    mock_get, mock_patch, mock_sleep
 ):
     """Chaos Test: Simulates HTTP 409 Conflict and recovers on next attempt."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
+    # Read/get always returns 200 (secret exists)
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 200
+    mock_get.return_value = mock_read_resp
 
-    # First attempt raises 409 Conflict. Second attempt succeeds.
-    mock_v1.read_namespaced_secret.return_value = MagicMock()
-    mock_v1.patch_namespaced_secret.side_effect = [
-        ApiException(status=409, reason="Conflict"),
-        MagicMock(),
-    ]
+    # First patch returns 409 (Conflict). Second patch returns 200 (Success).
+    mock_patch_resp_409 = MagicMock()
+    mock_patch_resp_409.status_code = 409
+    mock_patch_resp_409.text = "Conflict"
 
-    update_registration_data("10.0.0.1", "cert", {})
+    mock_patch_resp_200 = MagicMock()
+    mock_patch_resp_200.status_code = 200
 
-    assert mock_v1.patch_namespaced_secret.call_count == 2
+    mock_patch.side_effect = [mock_patch_resp_409, mock_patch_resp_200]
+
+    with patch.dict(os.environ, MOCK_ENV):
+        update_registration_data("10.0.0.1", "cert", {})
+
+    assert mock_patch.call_count == 2
     mock_sleep.assert_called_once_with(1.0)
 
 
 @patch("registration_engine.k8s.time.sleep")
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_rate_limiting_chaos(
-    mock_load_incluster, mock_v1_class, mock_sleep
-):
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_rate_limiting_chaos(mock_get, mock_sleep):
     """Chaos Test: Simulates severe API server rate limiting (429)."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 429
+    mock_read_resp.text = "Too Many Requests"
+    mock_get.return_value = mock_read_resp
 
-    mock_v1.read_namespaced_secret.side_effect = ApiException(
-        status=429, reason="Too Many Requests"
-    )
+    with patch.dict(os.environ, MOCK_ENV):
+        with pytest.raises(RuntimeError, match="exhausted retries"):
+            update_registration_data("10.0.0.1", "cert", {})
 
-    with pytest.raises(RuntimeError, match="exhausted retries"):
-        update_registration_data("10.0.0.1", "cert", {})
-
-    assert mock_v1.read_namespaced_secret.call_count == 5
+    assert mock_get.call_count == 5
     assert mock_sleep.call_count == 4
     mock_sleep.assert_any_call(1.0)
     mock_sleep.assert_any_call(2.0)
@@ -75,97 +85,99 @@ def test_update_registration_data_rate_limiting_chaos(
 
 
 @patch("registration_engine.k8s.time.sleep")
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
 def test_update_registration_data_socket_dropout_chaos(
-    mock_load_incluster, mock_v1_class, mock_sleep
+    mock_get, mock_patch, mock_sleep
 ):
     """Chaos Test: Simulates transient TCP drops and socket dropouts."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
+    # First get raises ConnectionResetError. Second get succeeds.
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 200
 
-    # First read raises raw ConnectionError. Second succeeds.
-    mock_v1.read_namespaced_secret.side_effect = [
-        ConnectionResetError("Connection reset by peer"),
-        MagicMock(),
-    ]
-    mock_v1.patch_namespaced_secret.return_value = MagicMock()
-
-    update_registration_data("10.0.0.1", "cert", {})
-
-    assert mock_v1.read_namespaced_secret.call_count == 2
-    mock_sleep.assert_called_once_with(1.0)
-
-
-@patch("registration_engine.k8s.time.sleep")
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_create_transient_error_chaos(
-    mock_load_incluster, mock_v1_class, mock_sleep
-):
-    """Chaos Test: Simulates transient error during secret creation."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
-
-    # Simulate read raising 404 (needs creation)
-    mock_v1.read_namespaced_secret.side_effect = ApiException(
-        status=404, reason="Not Found"
-    )
-
-    # First create call raises transient 409 conflict, second succeeds.
-    mock_v1.create_namespaced_secret.side_effect = [
-        ApiException(status=409, reason="Conflict"),
-        MagicMock(),
+    mock_get.side_effect = [
+        requests.exceptions.ConnectionError("Connection reset by peer"),
+        mock_read_resp,
     ]
 
-    update_registration_data("10.0.0.1", "cert", {})
+    mock_patch_resp = MagicMock()
+    mock_patch_resp.status_code = 200
+    mock_patch.return_value = mock_patch_resp
 
-    assert mock_v1.create_namespaced_secret.call_count == 2
-    mock_sleep.assert_called_once_with(1.0)
-
-
-@patch("registration_engine.k8s.time.sleep")
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_create_non_transient_error_chaos(
-    mock_load_incluster, mock_v1_class, mock_sleep
-):
-    """Chaos Test: Simulates non-transient error during creation."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
-
-    # Simulate read raising 404 (needs creation)
-    mock_v1.read_namespaced_secret.side_effect = ApiException(
-        status=404, reason="Not Found"
-    )
-
-    # Create raises 403 Forbidden (non-transient)
-    mock_v1.create_namespaced_secret.side_effect = ApiException(
-        status=403, reason="Forbidden"
-    )
-
-    with pytest.raises(ApiException, match="Forbidden"):
+    with patch.dict(os.environ, MOCK_ENV):
         update_registration_data("10.0.0.1", "cert", {})
 
-    assert mock_v1.create_namespaced_secret.call_count == 1
+    assert mock_get.call_count == 2
+    mock_sleep.assert_called_once_with(1.0)
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.requests.post")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_create_transient_error_chaos(
+    mock_get, mock_post, mock_sleep
+):
+    """Chaos Test: Simulates transient error during secret creation."""
+    # Simulate read raising 404 (needs creation)
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 404
+    mock_get.return_value = mock_read_resp
+
+    # First post returns transient 409 conflict, second returns 201 success.
+    mock_post_resp_409 = MagicMock()
+    mock_post_resp_409.status_code = 409
+    mock_post_resp_409.text = "Conflict"
+
+    mock_post_resp_201 = MagicMock()
+    mock_post_resp_201.status_code = 201
+
+    mock_post.side_effect = [mock_post_resp_409, mock_post_resp_201]
+
+    with patch.dict(os.environ, MOCK_ENV):
+        update_registration_data("10.0.0.1", "cert", {})
+
+    assert mock_post.call_count == 2
+    mock_sleep.assert_called_once_with(1.0)
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.requests.post")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_create_non_transient_error_chaos(
+    mock_get, mock_post, mock_sleep
+):
+    """Chaos Test: Simulates non-transient error during creation."""
+    # Simulate read raising 404 (needs creation)
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 404
+    mock_get.return_value = mock_read_resp
+
+    # Post returns 403 Forbidden (non-transient)
+    mock_post_resp_403 = MagicMock()
+    mock_post_resp_403.status_code = 403
+    mock_post_resp_403.raise_for_status.side_effect = requests.HTTPError(
+        "403 Client Error: Forbidden"
+    )
+    mock_post.return_value = mock_post_resp_403
+
+    with patch.dict(os.environ, MOCK_ENV):
+        with pytest.raises(requests.HTTPError, match="Forbidden"):
+            update_registration_data("10.0.0.1", "cert", {})
+
+    assert mock_post.call_count == 1
     assert mock_sleep.call_count == 0
 
 
 @patch("registration_engine.k8s.time.sleep")
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_generic_exception_chaos(
-    mock_load_incluster, mock_v1_class, mock_sleep
-):
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_generic_exception_chaos(mock_get, mock_sleep):
     """Chaos Test: Simulates generic unexpected code crashes."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
-
     # Simulate generic exception on read
-    mock_v1.read_namespaced_secret.side_effect = Exception("System Crash")
+    mock_get.side_effect = Exception("System Crash")
 
-    with pytest.raises(RuntimeError, match="exhausted retries"):
-        update_registration_data("10.0.0.1", "cert", {})
+    with patch.dict(os.environ, MOCK_ENV):
+        with pytest.raises(RuntimeError, match="exhausted retries"):
+            update_registration_data("10.0.0.1", "cert", {})
 
-    assert mock_v1.read_namespaced_secret.call_count == 5
+    assert mock_get.call_count == 5
     assert mock_sleep.call_count == 4

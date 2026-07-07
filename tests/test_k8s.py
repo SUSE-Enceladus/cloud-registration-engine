@@ -16,125 +16,157 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Unit tests for the k8s state persistence module."""
+"""Unit tests for the Kubernetes State Persistence module."""
 
 import json
 import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-from kubernetes.client.exceptions import ApiException
 
 from registration_engine.k8s import update_registration_data
 
+MOCK_ENV = {
+    "KUBERNETES_SERVICE_HOST": "127.0.0.1",
+    "KUBERNETES_SERVICE_PORT": "8443",
+    "KUBERNETES_TOKEN": "mocked-token",
+    "KUBERNETES_CA_CERT": "False",
+}
 
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_patch_success(mock_load_incluster, mock_v1_class):
+
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_patch_success(mock_get, mock_patch):
     """Test successful patch of existing secret."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
+    # 1. Mock GET to return 200 (secret exists)
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 200
+    mock_get.return_value = mock_read_resp
 
-    # Simulate read success (secret exists)
-    mock_v1.read_namespaced_secret.return_value = MagicMock()
+    # 2. Mock PATCH to return 200 (patch success)
+    mock_patch_resp = MagicMock()
+    mock_patch_resp.status_code = 200
+    mock_patch.return_value = mock_patch_resp
 
-    # Call function
     instance_data = {"test_key": "test_val"}
-    update_registration_data("10.0.0.1", "fake-cert", instance_data)
 
-    mock_load_incluster.assert_called_once()
-    mock_v1.read_namespaced_secret.assert_called_once_with(
-        name="scc-registration", namespace="cattle-scc-system"
+    with patch.dict(os.environ, MOCK_ENV):
+        update_registration_data("10.0.0.1", "fake-cert", instance_data)
+
+    mock_get.assert_called_once_with(
+        "https://127.0.0.1:8443/api/v1/namespaces/cattle-scc-system/"
+        "secrets/scc-registration",
+        headers={
+            "Authorization": "Bearer mocked-token",
+            "Accept": "application/json",
+        },
+        verify=False,
+        timeout=10,
+    )
+    mock_patch.assert_called_once_with(
+        "https://127.0.0.1:8443/api/v1/namespaces/cattle-scc-system/"
+        "secrets/scc-registration",
+        json={
+            "stringData": {
+                "registrationType": "online",
+                "registrationUrl": "10.0.0.1",
+                "regCode": "",
+                "instanceData": json.dumps(instance_data),
+                "registrationUrlCert": "fake-cert",
+            }
+        },
+        headers={
+            "Authorization": "Bearer mocked-token",
+            "Accept": "application/json",
+            "Content-Type": "application/merge-patch+json",
+        },
+        verify=False,
+        timeout=10,
     )
 
-    # Check patched call parameters
-    mock_v1.patch_namespaced_secret.assert_called_once()
-    args, kwargs = mock_v1.patch_namespaced_secret.call_args
-    assert kwargs["name"] == "scc-registration"
-    assert kwargs["namespace"] == "cattle-scc-system"
-    body = kwargs["body"]
-    assert body.string_data["registrationUrl"] == "10.0.0.1"
-    assert body.string_data["registrationUrlCert"] == "fake-cert"
-    assert json.loads(body.string_data["instanceData"]) == instance_data
 
-
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_kube_config")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_create_success(
-    mock_load_incluster, mock_load_kube, mock_v1_class
-):
+@patch("registration_engine.k8s.requests.post")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_create_success(mock_get, mock_post):
     """Test successful creation when secret does not exist."""
-    mock_load_incluster.side_effect = Exception("Not in cluster")
+    # 1. Mock GET to return 404 (secret doesn't exist)
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 404
+    mock_get.return_value = mock_read_resp
 
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
+    # 2. Mock POST to return 201 (creation success)
+    mock_post_resp = MagicMock()
+    mock_post_resp.status_code = 201
+    mock_post.return_value = mock_post_resp
 
-    # Simulate read raising 404 (secret doesn't exist)
-    mock_v1.read_namespaced_secret.side_effect = ApiException(
-        status=404, reason="Not Found"
-    )
-
-    # Call function
     instance_data = {"test_key": "test_val"}
-    update_registration_data("10.0.0.1", "fake-cert", instance_data)
 
-    mock_load_kube.assert_called_once()
-    mock_v1.read_namespaced_secret.assert_called_once_with(
-        name="scc-registration", namespace="cattle-scc-system"
+    with patch.dict(os.environ, MOCK_ENV):
+        update_registration_data("10.0.0.1", "fake-cert", instance_data)
+
+    mock_get.assert_called_once()
+    mock_post.assert_called_once_with(
+        "https://127.0.0.1:8443/api/v1/namespaces/cattle-scc-system/secrets",
+        json={
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {"name": "scc-registration"},
+            "type": "Opaque",
+            "stringData": {
+                "registrationType": "online",
+                "registrationUrl": "10.0.0.1",
+                "regCode": "",
+                "instanceData": json.dumps(instance_data),
+                "registrationUrlCert": "fake-cert",
+            },
+        },
+        headers={
+            "Authorization": "Bearer mocked-token",
+            "Accept": "application/json",
+        },
+        verify=False,
+        timeout=10,
     )
 
-    mock_v1.create_namespaced_secret.assert_called_once()
-    args, kwargs = mock_v1.create_namespaced_secret.call_args
-    assert kwargs["namespace"] == "cattle-scc-system"
-    body = kwargs["body"]
-    assert body.type == "Opaque"
-    assert body.string_data["registrationUrl"] == "10.0.0.1"
 
-
-@patch("registration_engine.k8s.config.load_kube_config")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_config_failed(mock_load_incluster, mock_load_kube):
-    """Test load config raises exception."""
-    mock_load_incluster.side_effect = Exception("No cluster")
-    mock_load_kube.side_effect = Exception("No local kube config")
-
-    with pytest.raises(Exception, match="No local kube config"):
-        update_registration_data("10.0.0.1", "cert", {})
+def test_update_registration_data_config_failed():
+    """Test load config raises exception when env variables are missing."""
+    with patch.dict(os.environ, {}, clear=True):
+        with pytest.raises(RuntimeError, match="not configured"):
+            update_registration_data("10.0.0.1", "cert", {})
 
 
 @patch("registration_engine.k8s.time.sleep")
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_api_error(
-    mock_load_incluster, mock_v1_class, mock_sleep
-):
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_api_error(mock_get, mock_sleep):
     """Test API error 500 fails closed."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
+    # Mock GET to return 500 (Internal Server Error)
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 500
+    mock_read_resp.text = "Internal Server Error"
+    mock_get.return_value = mock_read_resp
 
-    # Simulate API error status 500
-    mock_v1.read_namespaced_secret.side_effect = ApiException(
-        status=500, reason="Internal Server Error"
-    )
+    with patch.dict(os.environ, MOCK_ENV):
+        with pytest.raises(RuntimeError, match="exhausted retries"):
+            update_registration_data("10.0.0.1", "cert", {})
 
-    with pytest.raises(RuntimeError, match="exhausted retries"):
-        update_registration_data("10.0.0.1", "cert", {})
-
+    assert mock_get.call_count == 5
     assert mock_sleep.call_count == 4
 
 
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_custom_env_config(
-    mock_load_incluster, mock_v1_class
-):
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_custom_env_config(mock_get, mock_patch):
     """Test environment variable overrides."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
-    mock_v1.read_namespaced_secret.return_value = MagicMock()
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 200
+    mock_get.return_value = mock_read_resp
 
-    env_overrides = {
+    mock_patch_resp = MagicMock()
+    mock_patch_resp.status_code = 200
+    mock_patch.return_value = mock_patch_resp
+
+    env_overrides = MOCK_ENV | {
         "REGISTRATION_SECRET_NAME": "custom-secret",
         "REGISTRATION_SECRET_NAMESPACE": "custom-namespace",
         "REG_CODE": "custom-reg-code",
@@ -143,28 +175,34 @@ def test_update_registration_data_custom_env_config(
     with patch.dict(os.environ, env_overrides):
         update_registration_data("10.0.0.1", "cert", {})
 
-        mock_v1.read_namespaced_secret.assert_called_once_with(
-            name="custom-secret", namespace="custom-namespace"
-        )
-        mock_v1.patch_namespaced_secret.assert_called_once()
-        args, kwargs = mock_v1.patch_namespaced_secret.call_args
-        body = kwargs["body"]
-        assert body.string_data["registrationUrl"] == "10.0.0.1"
+    mock_get.assert_called_once_with(
+        "https://127.0.0.1:8443/api/v1/namespaces/custom-namespace/"
+        "secrets/custom-secret",
+        headers={
+            "Authorization": "Bearer mocked-token",
+            "Accept": "application/json",
+        },
+        verify=False,
+        timeout=10,
+    )
 
 
-@patch("registration_engine.k8s.client.CoreV1Api")
-@patch("registration_engine.k8s.config.load_incluster_config")
-def test_update_registration_data_instance_data_string(
-    mock_load_incluster, mock_v1_class
-):
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_instance_data_string(mock_get, mock_patch):
     """Test successful patch when instance_data is already a string."""
-    mock_v1 = MagicMock()
-    mock_v1_class.return_value = mock_v1
-    mock_v1.read_namespaced_secret.return_value = MagicMock()
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 200
+    mock_get.return_value = mock_read_resp
 
-    update_registration_data("10.0.0.1", "cert", "raw_string_data")
+    mock_patch_resp = MagicMock()
+    mock_patch_resp.status_code = 200
+    mock_patch.return_value = mock_patch_resp
 
-    mock_v1.patch_namespaced_secret.assert_called_once()
-    args, kwargs = mock_v1.patch_namespaced_secret.call_args
-    body = kwargs["body"]
-    assert body.string_data["instanceData"] == "raw_string_data"
+    with patch.dict(os.environ, MOCK_ENV):
+        update_registration_data("10.0.0.1", "cert", "raw_string_data")
+
+    mock_patch.assert_called_once()
+    args, kwargs = mock_patch.call_args
+    body = kwargs["json"]
+    assert body["stringData"]["instanceData"] == "raw_string_data"

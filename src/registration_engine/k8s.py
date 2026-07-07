@@ -16,13 +16,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Kubernetes State Persistence module."""
+"""Kubernetes State Persistence module using REST API."""
 
 import json
 import os
 import time
 
-from kubernetes import client, config
+import requests
 
 from registration_engine.utils import get_logger
 
@@ -43,19 +43,51 @@ def update_registration_data(
         instance_data: String or dictionary of collected instance data
     """
     secret_name = os.getenv("REGISTRATION_SECRET_NAME", "scc-registration")
-    namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
 
-    # Initialize kubernetes configuration
+    # Discover host and port
+    host = os.getenv("KUBERNETES_SERVICE_HOST")
+    port = os.getenv("KUBERNETES_SERVICE_PORT")
+    if not host or not port:
+        logger.error("Kubernetes host or port environment variables missing.")
+        raise RuntimeError("Kubernetes service host or port not configured.")
+
+    api_base_url = f"https://{host}:{port}"
+
+    # Get service account credentials from files or env fallbacks
+    token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    ca_cert_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    namespace_path = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+
     try:
-        config.load_incluster_config()
-    except Exception:
-        try:
-            config.load_kube_config()
-        except Exception as e:
-            logger.error("Failed to load Kubernetes configuration: %s", e)
-            raise e
+        if os.path.exists(token_path):
+            with open(token_path, "r", encoding="utf-8") as f:
+                token = f.read().strip()
+        else:
+            token = os.getenv("KUBERNETES_TOKEN", "").strip()
+            if not token:
+                raise RuntimeError("Service account token not found.")
+    except Exception as e:
+        logger.error("Failed to load Kubernetes token: %s", e)
+        raise e
 
-    v1 = client.CoreV1Api()
+    if os.path.exists(ca_cert_path):
+        verify = ca_cert_path
+    else:
+        verify_env = os.getenv("KUBERNETES_CA_CERT", "True").strip().lower()
+        if verify_env == "false":
+            verify = False
+        else:
+            verify = True
+
+    if os.path.exists(namespace_path):
+        try:
+            with open(namespace_path, "r", encoding="utf-8") as f:
+                namespace = f.read().strip()
+        except Exception as e:
+            logger.error("Failed to read Kubernetes namespace file: %s", e)
+            raise e
+    else:
+        namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
 
     reg_code = os.getenv(
         "REGISTRATION_CODE",
@@ -76,48 +108,97 @@ def update_registration_data(
         "registrationUrlCert": cert,
     }
 
-    body = client.V1Secret(
-        metadata=client.V1ObjectMeta(name=secret_name),
-        string_data=string_data,
-    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    secret_url = f"{api_base_url}/api/v1/namespaces/{namespace}/secrets/{secret_name}"
+    create_url = f"{api_base_url}/api/v1/namespaces/{namespace}/secrets"
 
     last_err = None
     delay = 1.0
     for attempt in range(1, K8S_RETRY_MAX + 1):
         try:
-            # Check if secret exists first
-            v1.read_namespaced_secret(name=secret_name, namespace=namespace)
-            v1.patch_namespaced_secret(name=secret_name, namespace=namespace, body=body)
-            logger.info(
-                "Successfully patched secret %s in namespace %s", secret_name, namespace
+            # 1. Read to check if secret exists first
+            read_resp = requests.get(
+                secret_url, headers=headers, verify=verify, timeout=10
             )
-            return
-        except client.exceptions.ApiException as error:
-            if error.status == 404:
-                try:
-                    body.type = "Opaque"
-                    v1.create_namespaced_secret(namespace=namespace, body=body)
+
+            if read_resp.status_code == 200:
+                # 2. Secret exists, patch it
+                patch_headers = headers | {
+                    "Content-Type": "application/merge-patch+json"
+                }
+                patch_body = {"stringData": string_data}
+                patch_resp = requests.patch(
+                    secret_url,
+                    json=patch_body,
+                    headers=patch_headers,
+                    verify=verify,
+                    timeout=10,
+                )
+                if patch_resp.status_code == 200:
+                    logger.info(
+                        "Successfully patched secret %s in namespace %s",
+                        secret_name,
+                        namespace,
+                    )
+                    return
+                elif patch_resp.status_code in (409, 429, 500, 502, 503, 504):
+                    last_err = RuntimeError(
+                        f"Transient patch error {patch_resp.status_code}"
+                    )
+                else:
+                    patch_resp.raise_for_status()
+
+            elif read_resp.status_code == 404:
+                # 3. Secret doesn't exist, create it
+                create_body = {
+                    "apiVersion": "v1",
+                    "kind": "Secret",
+                    "metadata": {"name": secret_name},
+                    "type": "Opaque",
+                    "stringData": string_data,
+                }
+                create_resp = requests.post(
+                    create_url,
+                    json=create_body,
+                    headers=headers,
+                    verify=verify,
+                    timeout=10,
+                )
+                if create_resp.status_code in (200, 201):
                     logger.info(
                         "Successfully created secret %s in namespace %s",
                         secret_name,
                         namespace,
                     )
                     return
-                except client.exceptions.ApiException as ce:
-                    if ce.status in (409, 429, 500, 502, 503, 504):
-                        last_err = ce
-                    else:
-                        raise ce
-            elif error.status in (409, 429, 500, 502, 503, 504):
-                last_err = error
-            else:
-                logger.error(
-                    "Failed to access secret %s in namespace %s: %s",
-                    secret_name,
-                    namespace,
-                    error,
+                elif create_resp.status_code in (409, 429, 500, 502, 503, 504):
+                    last_err = RuntimeError(
+                        f"Transient create error {create_resp.status_code}"
+                    )
+                else:
+                    create_resp.raise_for_status()
+
+            elif read_resp.status_code in (409, 429, 500, 502, 503, 504):
+                last_err = RuntimeError(
+                    f"Transient read error {read_resp.status_code}"
                 )
-                raise error
+            else:
+                read_resp.raise_for_status()
+
+        except requests.HTTPError as e:
+            logger.error(
+                "Failed to access secret %s in namespace %s: %s",
+                secret_name,
+                namespace,
+                e,
+            )
+            raise e
+        except requests.RequestException as e:
+            last_err = e
         except Exception as ex:
             last_err = ex
 
@@ -131,4 +212,6 @@ def update_registration_data(
             time.sleep(delay)
             delay *= K8S_RETRY_BACKOFF
 
-    raise RuntimeError(f"Kubernetes secret update exhausted retries: {last_err}")
+    raise RuntimeError(
+        f"Kubernetes secret update exhausted retries: {last_err}"
+    )
