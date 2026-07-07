@@ -40,7 +40,7 @@ def test_run_one_cycle_not_microsoft_skipped(mock_xml, mock_detect):
 @patch("registration_engine.main.get_config")
 @patch("registration_engine.main.get_target_update_server")
 @patch("registration_engine.main.get_preferred_ip")
-@patch("registration_engine.main.update_registration_secret")
+@patch("registration_engine.main.update_registration_data")
 def test_run_one_cycle_microsoft_success(
     mock_k8s, mock_preferred, mock_smt, mock_config, mock_xml, mock_detect
 ):
@@ -85,7 +85,7 @@ def test_run_one_cycle_get_verification_data_failed(mock_config, mock_xml, mock_
 @patch("registration_engine.main.get_config")
 @patch("registration_engine.main.get_target_update_server")
 @patch("registration_engine.main.get_preferred_ip")
-@patch("registration_engine.main.update_registration_secret")
+@patch("registration_engine.main.update_registration_data")
 def test_run_one_cycle_preferred_ip_failed(
     mock_k8s, mock_preferred, mock_smt, mock_config, mock_xml, mock_detect
 ):
