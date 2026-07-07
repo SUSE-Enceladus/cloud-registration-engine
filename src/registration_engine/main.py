@@ -25,9 +25,9 @@ import time
 from cloudregister.registerutils import get_config
 
 from registration_engine.connection import get_preferred_ip
-from registration_engine.k8s import update_registration_data
 from registration_engine.provider import detect_cloud_provider
 from registration_engine.smt import get_target_update_server
+from registration_engine.storage import determine_environment
 from registration_engine.utils import get_logger
 
 log = get_logger()
@@ -110,7 +110,7 @@ def run_one_cycle() -> None:
         log.error("SMT Discovery failed: %s", e)
         return
 
-    # 5. Kubernetes State Persistence
+    # 5. Runtime Environment Detection & State Persistence
     try:
         ipv4 = target_smt.get("ipv4", "")
         ipv6 = target_smt.get("ipv6", "")
@@ -121,17 +121,48 @@ def run_one_cycle() -> None:
         if not registration_ip:
             log.error(
                 "Happy Eyeballs connection failed to resolve a preferred IP "
-                "from SMT IPv4 (%s) and IPv6 (%s). Aborting secret update.",
+                "from SMT IPv4 (%s) and IPv6 (%s). Aborting state update.",
                 ipv4,
                 ipv6,
             )
             return
 
         log.info("Selected preferred registration IP: %s", registration_ip)
-        update_registration_data(registration_ip, cert, verification_xml)
-        log.info("State persistence successful. Registration secret updated.")
+
+        # Dynamically determine storage backend/environment
+        env = determine_environment()
+
+        try:
+            storage_module_name = f"registration_engine.{env}"
+            storage_module = importlib.import_module(storage_module_name)
+        except ModuleNotFoundError as e:
+            log.error(
+                "Storage module for environment '%s' not found: %s",
+                env,
+                e,
+            )
+            return
+        except Exception as e:
+            log.error(
+                "Failed to load storage module for environment '%s': %s",
+                env,
+                e,
+            )
+            return
+
+        try:
+            update_func = getattr(storage_module, "update_registration_data")
+        except AttributeError:
+            log.error(
+                "Storage module %s does not implement 'update_registration_data'.",
+                storage_module_name,
+            )
+            return
+
+        update_func(registration_ip, cert, verification_xml)
+        log.info("State persistence successful. Registration data updated.")
     except Exception as e:
-        log.error("Failed to persist state in Kubernetes secret: %s", e)
+        log.error("Failed to persist state: %s", e)
         return
 
 
