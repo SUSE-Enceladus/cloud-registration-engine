@@ -23,30 +23,39 @@ from unittest.mock import MagicMock, patch
 from registration_engine.main import main, run_one_cycle
 
 
+@patch("registration_engine.main.importlib.import_module")
 @patch("registration_engine.main.detect_cloud_provider")
-@patch("registration_engine.main.get_verification_data")
-def test_run_one_cycle_not_microsoft_skipped(mock_xml, mock_detect):
+def test_run_one_cycle_not_microsoft_skipped(mock_detect, mock_import_module):
     """Test that non-Microsoft providers skip rest of loop."""
     mock_detect.return_value = "amazon"
 
     run_one_cycle()
 
     mock_detect.assert_called_once()
-    mock_xml.assert_not_called()
+    mock_import_module.assert_not_called()
 
 
+@patch("registration_engine.main.importlib.import_module")
 @patch("registration_engine.main.detect_cloud_provider")
-@patch("registration_engine.main.get_verification_data")
 @patch("registration_engine.main.get_config")
 @patch("registration_engine.main.get_target_update_server")
 @patch("registration_engine.main.get_preferred_ip")
 @patch("registration_engine.main.update_registration_data")
 def test_run_one_cycle_microsoft_success(
-    mock_k8s, mock_preferred, mock_smt, mock_config, mock_xml, mock_detect
+    mock_k8s,
+    mock_preferred,
+    mock_smt,
+    mock_config,
+    mock_detect,
+    mock_import_module,
 ):
     """Test full sequential workflow success on Microsoft Azure."""
     mock_detect.return_value = "microsoft"
-    mock_xml.return_value = "<xml>verification</xml>"
+
+    mock_module = MagicMock()
+    mock_module.get_verification_data.return_value = "<xml>verification</xml>"
+    mock_import_module.return_value = mock_module
+
     mock_config.return_value = MagicMock()
     mock_smt.return_value = {
         "ipv4": "10.0.0.5",
@@ -58,40 +67,58 @@ def test_run_one_cycle_microsoft_success(
     run_one_cycle()
 
     mock_detect.assert_called_once()
-    mock_xml.assert_called_once_with()
+    mock_import_module.assert_called_once_with("registration_engine.microsoft")
+    mock_module.get_verification_data.assert_called_once_with()
     mock_config.assert_called_once()
     mock_smt.assert_called_once()
     mock_preferred.assert_called_once_with("2001:db8::1", "10.0.0.5")
-    mock_k8s.assert_called_once_with("10.0.0.5", "pem-cert", "<xml>verification</xml>")
+    mock_k8s.assert_called_once_with(
+        "10.0.0.5", "pem-cert", "<xml>verification</xml>"
+    )
 
 
+@patch("registration_engine.main.importlib.import_module")
 @patch("registration_engine.main.detect_cloud_provider")
-@patch("registration_engine.main.get_verification_data")
 @patch("registration_engine.main.get_config")
-def test_run_one_cycle_get_verification_data_failed(mock_config, mock_xml, mock_detect):
+def test_run_one_cycle_get_verification_data_failed(
+    mock_config, mock_detect, mock_import_module
+):
     """Test graceful abort on verification failures."""
     mock_detect.return_value = "microsoft"
-    mock_xml.side_effect = RuntimeError("TAMPERED")
+
+    mock_module = MagicMock()
+    mock_module.get_verification_data.side_effect = RuntimeError("TAMPERED")
+    mock_import_module.return_value = mock_module
 
     run_one_cycle()
 
     mock_detect.assert_called_once()
-    mock_xml.assert_called_once_with()
+    mock_import_module.assert_called_once_with("registration_engine.microsoft")
+    mock_module.get_verification_data.assert_called_once_with()
     mock_config.assert_not_called()
 
 
+@patch("registration_engine.main.importlib.import_module")
 @patch("registration_engine.main.detect_cloud_provider")
-@patch("registration_engine.main.get_verification_data")
 @patch("registration_engine.main.get_config")
 @patch("registration_engine.main.get_target_update_server")
 @patch("registration_engine.main.get_preferred_ip")
 @patch("registration_engine.main.update_registration_data")
 def test_run_one_cycle_preferred_ip_failed(
-    mock_k8s, mock_preferred, mock_smt, mock_config, mock_xml, mock_detect
+    mock_k8s,
+    mock_preferred,
+    mock_smt,
+    mock_config,
+    mock_detect,
+    mock_import_module,
 ):
     """Test workflow returns early if Happy Eyeballs connection fails."""
     mock_detect.return_value = "microsoft"
-    mock_xml.return_value = "<xml>verification</xml>"
+
+    mock_module = MagicMock()
+    mock_module.get_verification_data.return_value = "<xml>verification</xml>"
+    mock_import_module.return_value = mock_module
+
     mock_config.return_value = MagicMock()
     mock_smt.return_value = {
         "ipv4": "10.0.0.5",
@@ -104,7 +131,8 @@ def test_run_one_cycle_preferred_ip_failed(
     run_one_cycle()
 
     mock_detect.assert_called_once()
-    mock_xml.assert_called_once_with()
+    mock_import_module.assert_called_once_with("registration_engine.microsoft")
+    mock_module.get_verification_data.assert_called_once_with()
     mock_preferred.assert_called_once_with("2001:db8::1", "10.0.0.5")
     # Kubernetes secret update must NOT be called
     mock_k8s.assert_not_called()

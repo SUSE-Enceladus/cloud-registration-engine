@@ -18,6 +18,7 @@
 
 """Main entrypoint and event loop execution for the Registration Engine."""
 
+import importlib
 import random
 import time
 
@@ -25,7 +26,6 @@ from cloudregister.registerutils import get_config
 
 from registration_engine.connection import get_preferred_ip
 from registration_engine.k8s import update_registration_data
-from registration_engine.microsoft import get_verification_data
 from registration_engine.provider import detect_cloud_provider
 from registration_engine.smt import get_target_update_server
 from registration_engine.utils import get_logger
@@ -48,13 +48,49 @@ def run_one_cycle() -> None:
         )
         return
 
-    log.info("Microsoft Azure environment detected. Initiating verification cycle.")
+    log.info(
+        "Cloud provider '%s' detected. Loading verification module.",
+        provider,
+    )
 
-    # 2. Microsoft AD Workload Identity & Metadata Collection
+    # 2. Dynamic Module Loading & Verification Data Collection
     try:
-        verification_xml = get_verification_data()
+        provider_module_name = f"registration_engine.{provider}"
+        provider_module = importlib.import_module(provider_module_name)
+    except ModuleNotFoundError as e:
+        log.error(
+            "Verification module for provider '%s' not found: %s",
+            provider,
+            e,
+        )
+        return
     except Exception as e:
-        log.error("Microsoft AD Workload Identity or Metadata Collection failed: %s", e)
+        log.error(
+            "Failed to load verification module for provider '%s': %s",
+            provider,
+            e,
+        )
+        return
+
+    try:
+        get_verification_data_func = getattr(
+            provider_module, "get_verification_data"
+        )
+    except AttributeError:
+        log.error(
+            "Module %s does not implement 'get_verification_data'.",
+            provider_module_name,
+        )
+        return
+
+    try:
+        verification_xml = get_verification_data_func()
+    except Exception as e:
+        log.error(
+            "%s verification data collection failed: %s",
+            provider.capitalize(),
+            e,
+        )
         return
 
     # 3. Configuration Loading
