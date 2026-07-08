@@ -40,14 +40,6 @@ def run_one_cycle() -> None:
     """Run one full cycle of the registration verification workflow."""
     # 1. Cloud Provider Detection
     provider = detect_cloud_provider()
-    if provider != "microsoft":
-        log.warning(
-            "Host environment '%s' is not supported in this iteration. "
-            "Only Microsoft Azure is supported. Skipping cycle.",
-            provider,
-        )
-        return
-
     log.info(
         "Cloud provider '%s' detected. Loading verification module.",
         provider,
