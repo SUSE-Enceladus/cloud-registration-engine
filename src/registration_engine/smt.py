@@ -22,10 +22,12 @@ import os
 from configparser import RawConfigParser
 from typing import List, Optional
 
-from cloudregister.defaults import AVAILABLE_SMT_SERVER_DATA_FILE_NAME
+from cloudregister.defaults import (
+    AVAILABLE_SMT_SERVER_DATA_FILE_NAME,
+    REGISTRATION_DATA_DIR,
+)
 from cloudregister.registerutils import (
     fetch_smt_data,
-    get_state_dir,
     https_only,
     set_as_current_smt,
     store_smt_data,
@@ -62,7 +64,7 @@ def get_update_servers(region_smt_data: etree, cfg: RawConfigParser) -> List[SMT
         try:
             store_smt_data(
                 os.path.join(
-                    get_state_dir(), AVAILABLE_SMT_SERVER_DATA_FILE_NAME % count
+                    REGISTRATION_DATA_DIR, AVAILABLE_SMT_SERVER_DATA_FILE_NAME % count
                 ),
                 smt_server,
             )

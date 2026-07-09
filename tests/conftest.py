@@ -16,58 +16,27 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""Centralized pytest configuration and global sys.modules mocking."""
+"""Centralized pytest configuration and real cloudregister setup."""
 
-import sys
-from unittest.mock import MagicMock
+import shutil
+import tempfile
 
+import cloudregister.defaults
+import cloudregister.registerutils
 import pytest
 
-# 1. Define global mock instances
-global_smt_class = MagicMock()
-global_smt_module = MagicMock()
-global_smt_module.SMT = global_smt_class
+# Create a temporary directory to act as the cloudregister state directory
+# during the entire test suite run, avoiding permission issues with
+# /var/cache/cloudregister
+test_state_dir = tempfile.mkdtemp()
 
-global_reg_utils_module = MagicMock()
-global_reg_utils_module.https_only = MagicMock(return_value=True)
-global_reg_utils_module.store_smt_data = MagicMock()
-global_reg_utils_module.get_state_dir = MagicMock(return_value="/tmp")
-global_reg_utils_module.set_as_current_smt = MagicMock()
-global_reg_utils_module.fetch_smt_data = MagicMock()
-global_reg_utils_module.get_config = MagicMock()
-
-global_defaults_module = MagicMock()
-global_defaults_module.AVAILABLE_SMT_SERVER_DATA_FILE_NAME = "smt_%d.json"
-
-# 2. Inject globally into sys.modules
-sys.modules["cloudregister"] = MagicMock()
-sys.modules["cloudregister.smt"] = global_smt_module
-sys.modules["cloudregister.registerutils"] = global_reg_utils_module
-sys.modules["cloudregister.defaults"] = global_defaults_module
+# Override the registration cache directory to point to our temporary directory
+cloudregister.defaults.REGISTRATION_DATA_DIR = test_state_dir
+cloudregister.registerutils.REGISTRATION_DATA_DIR = test_state_dir
 
 
-@pytest.fixture(autouse=True)
-def reset_global_mocks():
-    """Automatically reset global mocks call history and side-effects."""
-    global_smt_class.reset_mock(side_effect=True, return_value=True)
-    global_smt_module.reset_mock(side_effect=True, return_value=True)
-    global_reg_utils_module.reset_mock(side_effect=True, return_value=True)
-    global_defaults_module.reset_mock(side_effect=True, return_value=True)
-
-    # Re-establish basic defaults
-    global_smt_module.SMT = global_smt_class
-    global_reg_utils_module.https_only.return_value = True
-    global_reg_utils_module.get_state_dir.return_value = "/tmp"
-    global_defaults_module.AVAILABLE_SMT_SERVER_DATA_FILE_NAME = "smt_%d.json"
-
-
-@pytest.fixture
-def mock_smt_class():
-    """Pytest fixture to provide global mock_smt_class to tests."""
-    return global_smt_class
-
-
-@pytest.fixture
-def mock_reg_utils_module():
-    """Pytest fixture to provide global mock_reg_utils_module to tests."""
-    return global_reg_utils_module
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_temp_dir():
+    """Ensure the temporary registration state directory is cleaned up after testing."""
+    yield
+    shutil.rmtree(test_state_dir, ignore_errors=True)
