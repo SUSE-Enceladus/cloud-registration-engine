@@ -19,10 +19,9 @@
 """Cloud Provider Detection module."""
 
 import os
-import socket
 import subprocess
-import urllib.error
-import urllib.request
+
+import requests
 
 from registration_engine.utils import get_logger
 
@@ -36,7 +35,7 @@ PROVIDER_UNKNOWN = "unknown"
 
 def check_imds_endpoint(
     url: str, headers: dict[str, str] = None, method: str = "GET", timeout: int = 2
-) -> bool:
+) -> tuple[bool, str]:
     """Utility function to make an HTTP request with a timeout.
 
     Args:
@@ -51,11 +50,10 @@ def check_imds_endpoint(
     if headers is None:
         headers = {}
     try:
-        req = urllib.request.Request(url, headers=headers, method=method)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            body = response.read().decode("utf-8")
-            return response.status == 200, body
-    except (urllib.error.URLError, socket.timeout, UnicodeDecodeError):
+        response = requests.request(method, url, headers=headers, timeout=timeout)
+        body = response.content.decode("utf-8")
+        return response.status_code == 200, body
+    except (requests.RequestException, UnicodeDecodeError):
         return False, ""
 
 

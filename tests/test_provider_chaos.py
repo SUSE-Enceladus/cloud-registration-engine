@@ -24,15 +24,14 @@ from unittest.mock import MagicMock, patch
 from registration_engine import provider
 
 
-@patch("registration_engine.provider.urllib.request.urlopen")
-def test_check_imds_endpoint_unicode_decode_chaos(mock_urlopen):
+@patch("registration_engine.provider.requests.request")
+def test_check_imds_endpoint_unicode_decode_chaos(mock_request):
     """Chaos Test: Verify malformed non-UTF-8 responses don't crash loop."""
     mock_response = MagicMock()
-    mock_response.status = 200
+    mock_response.status_code = 200
     # Provide raw binary bytes that cannot be decoded as valid UTF-8
-    mock_response.read.return_value = b"\xff\xfe\x00\x00_invalid_utf8"
-    mock_response.__enter__.return_value = mock_response
-    mock_urlopen.return_value = mock_response
+    mock_response.content = b"\xff\xfe\x00\x00_invalid_utf8"
+    mock_request.return_value = mock_response
 
     # Should handle decoding failure gracefully and return False
     success, body = provider.check_imds_endpoint("http://fake-url")
