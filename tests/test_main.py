@@ -35,6 +35,7 @@ def test_run_one_cycle_not_microsoft_skipped(mock_detect, mock_xml):
     mock_xml.assert_not_called()
 
 
+@patch("registration_engine.main.log")
 @patch("registration_engine.main.determine_environment")
 @patch("registration_engine.main.detect_cloud_provider")
 @patch("registration_engine.microsoft.get_verification_data")
@@ -50,6 +51,7 @@ def test_run_one_cycle_microsoft_success(
     mock_xml,
     mock_detect,
     mock_determine_env,
+    mock_log,
 ):
     """Test full sequential workflow success on Microsoft Azure."""
     mock_detect.return_value = "microsoft"
@@ -71,8 +73,16 @@ def test_run_one_cycle_microsoft_success(
     mock_config.assert_called_once()
     mock_smt.assert_called_once()
     mock_preferred.assert_called_once_with("2001:db8::1", "10.0.0.5")
-    mock_k8s.assert_called_once_with(
-        "10.0.0.5", "pem-cert", "<xml>verification</xml>"
+    mock_k8s.assert_called_once_with("10.0.0.5", "pem-cert", "<xml>verification</xml>")
+    mock_log.info.assert_any_call(
+        "Verification data successfully generated for provider '%s' "
+        "(length: %d characters).",
+        "microsoft",
+        23,
+    )
+    mock_log.info.assert_any_call(
+        "Storage backend discovered: '%s'. Loading storage module.",
+        "k8s",
     )
 
 
