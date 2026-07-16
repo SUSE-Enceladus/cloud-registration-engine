@@ -24,21 +24,6 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 
-class RegistrationFormatter(logging.Formatter):
-    """Custom logging Formatter that handles dynamic attributes.
-
-    Specifically handles 'newline' and 'provider' attributes in the
-    format string.
-    """
-
-    def format(self, record: logging.LogRecord) -> str:
-        if not hasattr(record, "newline"):
-            record.newline = "\n"
-        if not hasattr(record, "provider"):
-            record.provider = "unknown"
-        return super().format(record)
-
-
 def get_logger(debug: bool = False) -> logging.Logger:
     """Retrieve and configure the 'registration-engine' logger.
 
@@ -62,19 +47,18 @@ def get_logger(debug: bool = False) -> logging.Logger:
                 log_path, maxBytes=10 * 1024 * 1024, backupCount=5
             )
         except Exception:
-            # Fallback to local directory if ~ is not writable
-            file_handler = RotatingFileHandler(
-                "registration_engine.log",
-                maxBytes=10 * 1024 * 1024,
-                backupCount=5,
-            )
+            # If home dir is not writable skip file log
+            file_handler = None
 
         fmt = (
-            "%(levelname)s %(asctime)s %(name)s:%(provider)s%(newline)s    %(message)s"
+            "%(levelname)s %(asctime)s %(name)s "
+            "[%(module)s.%(funcName)s:%(lineno)d]\n    %(message)s"
         )
-        formatter = RegistrationFormatter(fmt)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+        formatter = logging.Formatter(fmt)
+
+        if file_handler:
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
 
         stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setFormatter(formatter)
