@@ -127,9 +127,7 @@ class Plan:
         )
 
 
-def fetch_extension_plan(
-    token: str, extension_resource_id: str
-) -> Plan:
+def fetch_extension_plan(token: str, extension_resource_id: str) -> Plan:
     """Fetch extension plan block using ARM Identity.
 
     Retries with exponential backoff on transient (5xx, 429, network) errors.
@@ -271,9 +269,7 @@ def get_attested_data(nonce: str, api_version: str) -> Dict[str, Any]:
         Dictionary containing pkcs7 signature, subscription ID and
         plain text nonce
     """
-    url = (
-        f"{IMDS_BASE_URL}/attested/document?api-version={api_version}&nonce={nonce}"
-    )
+    url = f"{IMDS_BASE_URL}/attested/document?api-version={api_version}&nonce={nonce}"
     try:
         response_body = _make_imds_request(url)
         attested_data = json.loads(response_body)
