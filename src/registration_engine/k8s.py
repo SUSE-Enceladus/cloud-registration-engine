@@ -183,9 +183,7 @@ def update_registration_data(
                     create_resp.raise_for_status()
 
             elif read_resp.status_code in (409, 429, 500, 502, 503, 504):
-                last_err = RuntimeError(
-                    f"Transient read error {read_resp.status_code}"
-                )
+                last_err = RuntimeError(f"Transient read error {read_resp.status_code}")
             else:
                 read_resp.raise_for_status()
 
@@ -212,6 +210,4 @@ def update_registration_data(
             time.sleep(delay)
             delay *= K8S_RETRY_BACKOFF
 
-    raise RuntimeError(
-        f"Kubernetes secret update exhausted retries: {last_err}"
-    )
+    raise RuntimeError(f"Kubernetes secret update exhausted retries: {last_err}")
