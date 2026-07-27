@@ -51,6 +51,4 @@ def test_config_loading_invalid_integration():
     # in compliance with SMT parsing guardrails
     if not (cfg.has_section("server") and cfg.has_section("instance")):
         with pytest.raises(ValueError, match="Missing required sections"):
-            raise ValueError(
-                "Missing required sections: [server] and [instance]"
-            )
+            raise ValueError("Missing required sections: [server] and [instance]")

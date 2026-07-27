@@ -120,6 +120,7 @@ def test_get_workload_identity_token_request_error(mock_open, mock_post):
     mock_open.return_value.__enter__.return_value = mock_file
 
     import requests
+
     mock_post.side_effect = requests.RequestException("Network error")
 
     with patch.dict(os.environ, env_vars):

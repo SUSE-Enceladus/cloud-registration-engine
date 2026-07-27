@@ -125,9 +125,10 @@ def test_get_target_update_server_return_type_and_outage_chaos(
     )
     mock_fetch_smt_data.return_value = [node]
 
-    with patch.object(SMT, "is_responsive", return_value=True), \
-         patch.object(SMT, "get_cert", return_value="pem-data"):
-
+    with (
+        patch.object(SMT, "is_responsive", return_value=True),
+        patch.object(SMT, "get_cert", return_value="pem-data"),
+    ):
         res = get_target_update_server(cfg)
         assert isinstance(res, dict)
         assert res["ipv4"] == "192.168.1.100"
