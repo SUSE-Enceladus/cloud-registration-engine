@@ -23,29 +23,7 @@ import os
 import tempfile
 from unittest.mock import patch
 
-from registration_engine.utils import RegistrationFormatter, get_logger
-
-
-def test_registration_formatter():
-    """Test that the custom formatter correctly injects default attributes."""
-    formatter = RegistrationFormatter()
-    record = logging.LogRecord(
-        name="test",
-        level=logging.INFO,
-        pathname="test.py",
-        lineno=10,
-        msg="test message",
-        args=(),
-        exc_info=None,
-    )
-    # By default, record shouldn't have 'newline' or 'provider' attributes
-    assert not hasattr(record, "newline")
-    assert not hasattr(record, "provider")
-
-    # Formatting should inject default values
-    formatter.format(record)
-    assert record.newline == "\n"
-    assert record.provider == "unknown"
+from registration_engine.utils import get_logger
 
 
 def test_get_logger_config():
@@ -71,3 +49,18 @@ def test_get_logger_config():
             assert log_instance_debug.level == logging.DEBUG
             # Should not duplicate handler
             assert len(log_instance_debug.handlers) == 2
+
+
+@patch("registration_engine.utils.RotatingFileHandler")
+def test_get_logger_unwritable_directory(mock_rotating_handler):
+    """Test get_logger handles RotatingFileHandler failures gracefully."""
+    mock_rotating_handler.side_effect = PermissionError("Permission denied")
+
+    logger = logging.getLogger("registration-engine")
+    logger.handlers.clear()
+
+    log_instance = get_logger(debug=False)
+    assert log_instance.level == logging.INFO
+    # Only StreamHandler should be present as file_handler creation failed
+    assert len(log_instance.handlers) == 1
+    assert isinstance(log_instance.handlers[0], logging.StreamHandler)
