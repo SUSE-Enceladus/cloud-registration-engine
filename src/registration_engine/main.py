@@ -65,9 +65,7 @@ def run_one_cycle() -> None:
         return
 
     try:
-        get_verification_data_func = getattr(
-            provider_module, "get_verification_data"
-        )
+        get_verification_data_func = getattr(provider_module, "get_verification_data")
     except AttributeError:
         log.error(
             "Module %s does not implement 'get_verification_data'.",
@@ -84,6 +82,13 @@ def run_one_cycle() -> None:
             e,
         )
         return
+
+    log.info(
+        "Verification data successfully generated for provider '%s' "
+        "(length: %d characters).",
+        provider,
+        len(verification_xml),
+    )
 
     # 3. Configuration Loading
     try:
@@ -123,6 +128,10 @@ def run_one_cycle() -> None:
 
         # Dynamically determine storage backend/environment
         env = determine_environment()
+        log.info(
+            "Storage backend discovered: '%s'. Loading storage module.",
+            env,
+        )
 
         try:
             storage_module_name = f"registration_engine.{env}"
