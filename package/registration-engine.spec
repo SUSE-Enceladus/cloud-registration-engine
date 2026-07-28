@@ -23,7 +23,7 @@
 %global _sitelibdir %{%{pythons}_sitelib}
 
 Name:           cloud-registration-engine
-Version:        0.1.0
+Version:        1.0.0
 Release:        0
 Summary:        Provide zero-touch registration and compliance experience for PAYG deployments
 License:        GPL-3.0-or-later

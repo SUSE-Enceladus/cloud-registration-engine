@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "registration-engine"
-version = "0.1.0"
+version = "1.0.0"
 description = "Cloud PAYG Registration Engine"
 authors = ["SUSE <public-cloud-dev@susecloud.net>"]
 readme = "README.md"
