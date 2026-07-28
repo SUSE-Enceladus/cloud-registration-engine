@@ -1,18 +1,18 @@
 import os
-import socket
 from unittest.mock import MagicMock, patch
+
+import requests
 
 from registration_engine import provider
 
 
-@patch("registration_engine.provider.urllib.request.urlopen")
-def test_check_imds_endpoint_success(mock_urlopen):
+@patch("registration_engine.provider.requests.request")
+def test_check_imds_endpoint_success(mock_request):
     """Test successful IMDS endpoint HTTP request."""
     mock_response = MagicMock()
-    mock_response.status = 200
-    mock_response.read.return_value = b"test_body"
-    mock_response.__enter__.return_value = mock_response
-    mock_urlopen.return_value = mock_response
+    mock_response.status_code = 200
+    mock_response.content = b"test_body"
+    mock_request.return_value = mock_response
 
     success, body = provider.check_imds_endpoint("http://fake-url")
 
@@ -20,10 +20,10 @@ def test_check_imds_endpoint_success(mock_urlopen):
     assert body == "test_body"
 
 
-@patch("registration_engine.provider.urllib.request.urlopen")
-def test_check_imds_endpoint_timeout(mock_urlopen):
+@patch("registration_engine.provider.requests.request")
+def test_check_imds_endpoint_timeout(mock_request):
     """Test IMDS endpoint timeout handling."""
-    mock_urlopen.side_effect = socket.timeout
+    mock_request.side_effect = requests.RequestException("Timeout")
 
     success, body = provider.check_imds_endpoint("http://fake-url")
 
