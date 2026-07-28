@@ -134,6 +134,8 @@ Under a Kubernetes environment, the compiled credentials and routing parameters 
 | `KUBERNETES_TOKEN` | Bearer token to authorize against K8s API. | `/var/run/secrets/.../token` | Kubernetes State (fallback) |
 | `KUBERNETES_CA_CERT` | Path to Kubernetes CA cert or `"False"` to ignore.| `/var/run/secrets/.../ca.crt` | Kubernetes State (fallback) |
 | **Application & Retries** | | | |
+| `REGISTRATION_ENGINE_LOG_LEVEL` | Dynamic log level during execution (takes precedence). Supports DEBUG, INFO, WARNING, ERROR, CRITICAL. | `INFO` | Logger Configuration |
+| `LOG_LEVEL` | Dynamic log level during execution fallback. Supports DEBUG, INFO, WARNING, ERROR, CRITICAL. | `INFO` | Logger Configuration |
 | `VERIFY_RETRY_MAX` | Max retries for Azure ARM token & plan verification. | `5` | Azure ARM Calls |
 | `VERIFY_RETRY_BACKOFF` | Exponential retry backoff multiplier for ARM calls. | `2.0` | Azure ARM Calls |
 | `K8S_RETRY_MAX` | Max retries for Kubernetes secret read/write calls. | `5` | Kubernetes State |

@@ -64,3 +64,39 @@ def test_get_logger_unwritable_directory(mock_rotating_handler):
     # Only StreamHandler should be present as file_handler creation failed
     assert len(log_instance.handlers) == 1
     assert isinstance(log_instance.handlers[0], logging.StreamHandler)
+
+
+def test_get_logger_env_var():
+    """Test setting and changing logging level via environment variables."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_home = os.path.join(tmpdir, "home")
+        os.makedirs(fake_home)
+
+        log_file = os.path.join(fake_home, "registration_engine.log")
+        with patch("os.path.expanduser", return_value=log_file):
+            logger = logging.getLogger("registration-engine")
+            logger.handlers.clear()
+
+            # Default without env var should be INFO
+            with patch.dict(os.environ, {}, clear=True):
+                log_instance = get_logger()
+                assert log_instance.level == logging.INFO
+
+            # Using LOG_LEVEL env var
+            with patch.dict(os.environ, {"LOG_LEVEL": "DEBUG"}, clear=True):
+                log_instance = get_logger()
+                assert log_instance.level == logging.DEBUG
+
+            # Using REGISTRATION_ENGINE_LOG_LEVEL (takes precedence)
+            env_override = {
+                "REGISTRATION_ENGINE_LOG_LEVEL": "WARNING",
+                "LOG_LEVEL": "DEBUG",
+            }
+            with patch.dict(os.environ, env_override, clear=True):
+                log_instance = get_logger()
+                assert log_instance.level == logging.WARNING
+
+            # Test invalid log level defaults to debug arg (or INFO if false)
+            with patch.dict(os.environ, {"LOG_LEVEL": "INVALID_LEVEL"}, clear=True):
+                log_instance = get_logger(debug=True)
+                assert log_instance.level == logging.DEBUG

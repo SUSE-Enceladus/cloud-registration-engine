@@ -38,6 +38,9 @@ JITTER_WINDOW = 3600
 
 def run_one_cycle() -> None:
     """Run one full cycle of the registration verification workflow."""
+    # Dynamically update the log level from the environment on each cycle
+    get_logger()
+
     # 1. Cloud Provider Detection
     provider = detect_cloud_provider()
     log.info(
