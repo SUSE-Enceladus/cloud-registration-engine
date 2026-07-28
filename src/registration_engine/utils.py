@@ -37,7 +37,25 @@ def get_logger(debug: bool = False) -> logging.Logger:
 
     # If already configured, just update level and return
     # to avoid duplicate handlers.
-    level = logging.DEBUG if debug else logging.INFO
+    env_level = (
+        os.getenv("REGISTRATION_ENGINE_LOG_LEVEL", os.getenv("LOG_LEVEL", ""))
+        .strip()
+        .upper()
+    )
+    if env_level:
+        levels = {
+            "DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "WARN": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL,
+            "FATAL": logging.CRITICAL,
+        }
+        level = levels.get(env_level, logging.DEBUG if debug else logging.INFO)
+    else:
+        level = logging.DEBUG if debug else logging.INFO
+
     logger.setLevel(level)
 
     if not logger.handlers:
