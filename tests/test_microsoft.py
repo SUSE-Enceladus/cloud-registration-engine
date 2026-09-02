@@ -248,9 +248,6 @@ def test_verify_once_success(mock_get_token, mock_fetch_plan):
     """Test verify_once matches plan and returns it."""
     env_vars = {
         "EXTENSION_RESOURCE_ID": "/sub/resource",
-        "MARKETPLACE_PUBLISHER_ID": "pub",
-        "MARKETPLACE_OFFER_ID": "offer",
-        "MARKETPLACE_PLAN_ID": "plan",
     }
     mock_get_token.return_value = "fake-token"
     mock_fetch_plan.return_value = Plan("pub", "offer", "plan")
@@ -260,25 +257,6 @@ def test_verify_once_success(mock_get_token, mock_fetch_plan):
         assert result.publisher_id == "pub"
         assert result.offer_id == "offer"
         assert result.plan_id == "plan"
-
-
-@patch("registration_engine.microsoft.fetch_extension_plan")
-@patch("registration_engine.microsoft.get_workload_identity_token")
-def test_verify_once_mismatch(mock_get_token, mock_fetch_plan):
-    """Test verify_once raises RuntimeError on plan mismatch."""
-    env_vars = {
-        "EXTENSION_RESOURCE_ID": "/sub/resource",
-        "MARKETPLACE_PUBLISHER_ID": "pub",
-        "MARKETPLACE_OFFER_ID": "offer",
-        "MARKETPLACE_PLAN_ID": "plan",
-    }
-    mock_get_token.return_value = "fake-token"
-    # Fetched plan doesn't match env plan (different plan name)
-    mock_fetch_plan.return_value = Plan("pub", "offer", "different-plan")
-
-    with patch.dict(os.environ, env_vars):
-        with pytest.raises(RuntimeError, match="Plan mismatch detected"):
-            verify_once()
 
 
 @patch("registration_engine.microsoft.urllib.request.build_opener")

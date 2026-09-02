@@ -79,7 +79,7 @@ The engine determines the host environment through a robust sequential fallback 
 #### 2. Identity Verification & Cryptographic Attestation
 *(Currently fully supported on Microsoft Azure)*
 *   **ARM Identity Bootstrap:** Leverages Kubernetes-injected Workload Identity credentials to request a Bearer token for Azure Resource Manager (`https://management.azure.com/.default`).
-*   **Plan Verification & Tamper Protection:** Obtains the extension deployment plan via ARM and compares it against expected environment variables (`MARKETPLACE_PUBLISHER_ID`, `MARKETPLACE_OFFER_ID`, `MARKETPLACE_PLAN_ID`). The engine fails-closed immediately on configuration mismatches.
+*   **Plan Retrieval:** Obtains the extension deployment plan via ARM to resolve the authoritative publisher, offer, and plan ID for the running environment. The engine fails-closed immediately on retrieval errors.
 *   **Cryptographic Attestation (IMDS):** Hashes the verified plan URN with SHA-3-256 to generate a 32-character base64-encoded nonce, queries the IMDS attested endpoint (`/metadata/attested/document`) to obtain a PKCS7 signature of the host, and packages it into an XML structure. Bypasses all system proxies during IMDS calls.
 
 #### 3. Configuration Loading
@@ -122,9 +122,6 @@ Under a Kubernetes environment, the compiled credentials and routing parameters 
 | `AZURE_TENANT_ID` | Tenant ID of the Azure AD Tenant. | *(Injected by K8s webhook)* | Azure ARM Calls |
 | `AZURE_FEDERATED_TOKEN_FILE`| Path to the federated JWT token injected by K8s. | *(Injected by K8s webhook)* | Azure ARM Calls |
 | `EXTENSION_RESOURCE_ID` | Resource ID of the extension to verify. | *None* | Plan Verification |
-| `MARKETPLACE_PUBLISHER_ID` | Authorized publisher ID of the marketplace offer. | *None* | Plan Verification |
-| `MARKETPLACE_OFFER_ID` | Authorized marketplace offer ID. | *None* | Plan Verification |
-| `MARKETPLACE_PLAN_ID` | Authorized plan ID. | *None* | Plan Verification |
 | **Kubernetes Storage** | | | |
 | `REGISTRATION_SECRET_NAME` | The Kubernetes secret name to save credentials. | `scc-registration` | Kubernetes State |
 | `REGISTRATION_SECRET_NAMESPACE` | The Kubernetes namespace for the secret. | `cattle-scc-system` | Kubernetes State |
@@ -287,12 +284,6 @@ spec:
               value: "SUSE-REGISTRATION-CODE-HERE"
             - name: EXTENSION_RESOURCE_ID
               value: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/my-rg/providers/Microsoft.Compute/virtualMachines/my-vm/extensions/RancherPAYG"
-            - name: MARKETPLACE_PUBLISHER_ID
-              value: "suse"
-            - name: MARKETPLACE_OFFER_ID
-              value: "rancher-payg"
-            - name: MARKETPLACE_PLAN_ID
-              value: "rancher-payg-plan"
           volumeMounts:
             - name: config-volume
               mountPath: /etc/regionserverclnt.cfg

@@ -118,14 +118,6 @@ class Plan:
             plan_id=plan_block["name"],
         )
 
-    @classmethod
-    def from_env(cls) -> "Plan":
-        return cls(
-            publisher_id=_require_env("MARKETPLACE_PUBLISHER_ID"),
-            offer_id=_require_env("MARKETPLACE_OFFER_ID"),
-            plan_id=_require_env("MARKETPLACE_PLAN_ID"),
-        )
-
 
 def fetch_extension_plan(token: str, extension_resource_id: str) -> Plan:
     """Fetch extension plan block using ARM Identity.
@@ -290,18 +282,9 @@ def verify_once() -> Plan:
         Plan object with the authoritive plan information.
     """
     extension_resource_id = _require_env("EXTENSION_RESOURCE_ID")
-    env_plan = Plan.from_env()
     token = get_workload_identity_token()
 
     authoritative = fetch_extension_plan(token, extension_resource_id)
-
-    if authoritative != env_plan:
-        log.error(
-            "Plan mismatch! ARM=%s ENV=%s - possible tampering. Failing closed.",
-            authoritative,
-            env_plan,
-        )
-        raise RuntimeError("Plan mismatch detected")
 
     log.info(
         "Plan verified: publisher=%s offer=%s plan=%s",
