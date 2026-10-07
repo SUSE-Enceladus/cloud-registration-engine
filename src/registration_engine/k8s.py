@@ -33,12 +33,13 @@ K8S_RETRY_BACKOFF = float(os.getenv("K8S_RETRY_BACKOFF", "2.0"))
 
 
 def update_registration_data(
-    registration_ip: str, cert: str, instance_data: str | dict
+    registration_ip: str, fqdn: str, cert: str, instance_data: str | dict
 ) -> None:
     """Store/patch compiled registration info back into K8s secret.
 
     Args:
         registration_ip: Active SMT routing IP address
+        fqdn: Fully qualified domain name of the SMT server
         cert: Validated SMT certificate string
         instance_data: String or dictionary of collected instance data
     """
@@ -93,7 +94,7 @@ def update_registration_data(
 
     string_data = {
         "registrationType": "online",
-        "registrationUrl": registration_ip,
+        "registrationUrl": f"https://{fqdn}",
         "regCode": reg_code,
         "instanceData": instance_data_str,
         "registrationUrlCert": cert,

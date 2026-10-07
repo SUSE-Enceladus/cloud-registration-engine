@@ -115,6 +115,7 @@ def run_one_cycle() -> None:
         ipv4 = target_smt.get("ipv4", "")
         ipv6 = target_smt.get("ipv6", "")
         cert = target_smt.get("cert", "")
+        fqdn = target_smt.get("fqdn", "")
 
         # Run Happy Eyeballs race to find the preferred routing IP
         registration_ip = get_preferred_ip(ipv6, ipv4)
@@ -163,7 +164,7 @@ def run_one_cycle() -> None:
             )
             return
 
-        update_func(registration_ip, cert, verification_xml)
+        update_func(registration_ip, fqdn, cert, verification_xml)
         log.info("State persistence successful. Registration data updated.")
     except Exception as e:
         log.error("Failed to persist state: %s", e)

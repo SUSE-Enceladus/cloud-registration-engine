@@ -62,6 +62,7 @@ def test_run_one_cycle_microsoft_success(
         "ipv4": "10.0.0.5",
         "ipv6": "2001:db8::1",
         "cert": "pem-cert",
+        "fqdn": "smt.suse.com",
     }
     mock_preferred.return_value = "10.0.0.5"
 
@@ -73,7 +74,9 @@ def test_run_one_cycle_microsoft_success(
     mock_config.assert_called_once()
     mock_smt.assert_called_once()
     mock_preferred.assert_called_once_with("2001:db8::1", "10.0.0.5")
-    mock_k8s.assert_called_once_with("10.0.0.5", "pem-cert", "<xml>verification</xml>")
+    mock_k8s.assert_called_once_with(
+        "10.0.0.5", "smt.suse.com", "pem-cert", "<xml>verification</xml>"
+    )
     mock_log.info.assert_any_call(
         "Verification data successfully generated for provider '%s' "
         "(length: %d characters).",

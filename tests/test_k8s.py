@@ -51,7 +51,9 @@ def test_update_registration_data_patch_success(mock_get, mock_patch):
     instance_data = {"test_key": "test_val"}
 
     with patch.dict(os.environ, MOCK_ENV):
-        update_registration_data("10.0.0.1", "fake-cert", instance_data)
+        update_registration_data(
+            "10.0.0.1", "smt.example.com", "fake-cert", instance_data
+        )
 
     mock_get.assert_called_once_with(
         "https://127.0.0.1:8443/api/v1/namespaces/cattle-scc-system/"
@@ -69,7 +71,7 @@ def test_update_registration_data_patch_success(mock_get, mock_patch):
         json={
             "stringData": {
                 "registrationType": "online",
-                "registrationUrl": "10.0.0.1",
+                "registrationUrl": "https://smt.example.com",
                 "regCode": "",
                 "instanceData": json.dumps(instance_data),
                 "registrationUrlCert": "fake-cert",
@@ -102,7 +104,9 @@ def test_update_registration_data_create_success(mock_get, mock_post):
     instance_data = {"test_key": "test_val"}
 
     with patch.dict(os.environ, MOCK_ENV):
-        update_registration_data("10.0.0.1", "fake-cert", instance_data)
+        update_registration_data(
+            "10.0.0.1", "smt.example.com", "fake-cert", instance_data
+        )
 
     mock_get.assert_called_once()
     mock_post.assert_called_once_with(
@@ -114,7 +118,7 @@ def test_update_registration_data_create_success(mock_get, mock_post):
             "type": "Opaque",
             "stringData": {
                 "registrationType": "online",
-                "registrationUrl": "10.0.0.1",
+                "registrationUrl": "https://smt.example.com",
                 "regCode": "",
                 "instanceData": json.dumps(instance_data),
                 "registrationUrlCert": "fake-cert",
@@ -133,7 +137,7 @@ def test_update_registration_data_config_failed():
     """Test load config raises exception when env variables are missing."""
     with patch.dict(os.environ, {}, clear=True):
         with pytest.raises(RuntimeError, match="not configured"):
-            update_registration_data("10.0.0.1", "cert", {})
+            update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
 
 @patch("registration_engine.k8s.time.sleep")
@@ -148,7 +152,7 @@ def test_update_registration_data_api_error(mock_get, mock_sleep):
 
     with patch.dict(os.environ, MOCK_ENV):
         with pytest.raises(RuntimeError, match="exhausted retries"):
-            update_registration_data("10.0.0.1", "cert", {})
+            update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     assert mock_get.call_count == 5
     assert mock_sleep.call_count == 4
@@ -173,7 +177,7 @@ def test_update_registration_data_custom_env_config(mock_get, mock_patch):
     }
 
     with patch.dict(os.environ, env_overrides):
-        update_registration_data("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     mock_get.assert_called_once_with(
         "https://127.0.0.1:8443/api/v1/namespaces/custom-namespace/"
@@ -200,12 +204,15 @@ def test_update_registration_data_instance_data_string(mock_get, mock_patch):
     mock_patch.return_value = mock_patch_resp
 
     with patch.dict(os.environ, MOCK_ENV):
-        update_registration_data("10.0.0.1", "cert", "raw_string_data")
+        update_registration_data(
+            "10.0.0.1", "smt.example.com", "cert", "raw_string_data"
+        )
 
     mock_patch.assert_called_once()
     args, kwargs = mock_patch.call_args
     body = kwargs["json"]
     assert body["stringData"]["instanceData"] == "raw_string_data"
+    assert body["stringData"]["registrationUrl"] == "https://smt.example.com"
 
 
 @patch("registration_engine.k8s.requests.patch")
@@ -225,7 +232,7 @@ def test_update_registration_data_default_namespace(mock_get, mock_patch):
     }
 
     with patch.dict(os.environ, env_without_ns, clear=True):
-        update_registration_data("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     mock_get.assert_called_once_with(
         "https://127.0.0.1:8443/api/v1/namespaces/cattle-scc-system/"
@@ -243,7 +250,7 @@ def test_update_registration_data_default_namespace(mock_get, mock_patch):
         json={
             "stringData": {
                 "registrationType": "online",
-                "registrationUrl": "10.0.0.1",
+                "registrationUrl": "https://smt.example.com",
                 "regCode": "",
                 "instanceData": "{}",
                 "registrationUrlCert": "cert",

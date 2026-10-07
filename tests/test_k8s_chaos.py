@@ -57,7 +57,7 @@ def test_update_registration_data_conflict_and_success(
     mock_patch.side_effect = [mock_patch_resp_409, mock_patch_resp_200]
 
     with patch.dict(os.environ, MOCK_ENV):
-        update_registration_data("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     assert mock_patch.call_count == 2
     mock_sleep.assert_called_once_with(1.0)
@@ -74,7 +74,7 @@ def test_update_registration_data_rate_limiting_chaos(mock_get, mock_sleep):
 
     with patch.dict(os.environ, MOCK_ENV):
         with pytest.raises(RuntimeError, match="exhausted retries"):
-            update_registration_data("10.0.0.1", "cert", {})
+            update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     assert mock_get.call_count == 5
     assert mock_sleep.call_count == 4
@@ -105,7 +105,7 @@ def test_update_registration_data_socket_dropout_chaos(
     mock_patch.return_value = mock_patch_resp
 
     with patch.dict(os.environ, MOCK_ENV):
-        update_registration_data("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     assert mock_get.call_count == 2
     mock_sleep.assert_called_once_with(1.0)
@@ -134,7 +134,7 @@ def test_update_registration_data_create_transient_error_chaos(
     mock_post.side_effect = [mock_post_resp_409, mock_post_resp_201]
 
     with patch.dict(os.environ, MOCK_ENV):
-        update_registration_data("10.0.0.1", "cert", {})
+        update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     assert mock_post.call_count == 2
     mock_sleep.assert_called_once_with(1.0)
@@ -162,7 +162,7 @@ def test_update_registration_data_create_non_transient_error_chaos(
 
     with patch.dict(os.environ, MOCK_ENV):
         with pytest.raises(requests.HTTPError, match="Forbidden"):
-            update_registration_data("10.0.0.1", "cert", {})
+            update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     assert mock_post.call_count == 1
     assert mock_sleep.call_count == 0
@@ -177,7 +177,7 @@ def test_update_registration_data_generic_exception_chaos(mock_get, mock_sleep):
 
     with patch.dict(os.environ, MOCK_ENV):
         with pytest.raises(RuntimeError, match="exhausted retries"):
-            update_registration_data("10.0.0.1", "cert", {})
+            update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
 
     assert mock_get.call_count == 5
     assert mock_sleep.call_count == 4
