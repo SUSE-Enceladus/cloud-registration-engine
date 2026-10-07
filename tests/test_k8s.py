@@ -24,7 +24,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from registration_engine.k8s import process_corefile, update_registration_data
+from registration_engine.k8s import (
+    process_corefile,
+    update_coredns_record,
+    update_registration_data,
+)
 
 MOCK_ENV = {
     "KUBERNETES_SERVICE_HOST": "127.0.0.1",
@@ -306,3 +310,48 @@ def test_chaos_trailing_comments_on_existing_line():
     result = process_corefile(original, "2.2.2.2", "api.com")
     assert "2.2.2.2 api.com" in result
     assert "# old entry" not in result
+
+
+@patch("registration_engine.k8s.requests.get")
+@patch("registration_engine.k8s.requests.patch")
+def test_requests_k8s_api_patch_coredns(mock_patch, mock_get):
+    """Verifies the requests library executes the correct HTTP calls to K8s."""
+
+    # Setup GET response mock
+    mock_get_response = MagicMock()
+    mock_get_response.json.return_value = {"data": {"Corefile": ".:53 {\n}"}}
+    mock_get.return_value = mock_get_response
+
+    # Setup PATCH response mock
+    mock_patch_response = MagicMock()
+    mock_patch.return_value = mock_patch_response
+
+    # Execute with injected test credentials
+    test_base_url = "https://10.96.0.1:443"
+    test_token = "fake-token"
+    test_verify = "/fake/ca.crt"
+    update_coredns_record(
+        "52.188.81.163", "api.com", test_base_url, test_token, test_verify
+    )
+
+    # Verify GET Request
+    mock_get.assert_called_once()
+    get_url = mock_get.call_args[0][0]
+    get_kwargs = mock_get.call_args[1]
+
+    assert (
+        get_url == f"{test_base_url}/api/v1/namespaces/kube-system/configmaps/coredns"
+    )
+    assert get_kwargs["headers"]["Authorization"] == f"Bearer {test_token}"
+    assert get_kwargs["verify"] == test_verify
+
+    # Verify PATCH Request
+    mock_patch.assert_called_once()
+    patch_url = mock_patch.call_args[0][0]
+    patch_kwargs = mock_patch.call_args[1]
+
+    assert (
+        patch_url == f"{test_base_url}/api/v1/namespaces/kube-system/configmaps/coredns"
+    )
+    assert patch_kwargs["headers"]["Content-Type"] == "application/merge-patch+json"
+    assert "52.188.81.163 api.com" in patch_kwargs["json"]["data"]["Corefile"]

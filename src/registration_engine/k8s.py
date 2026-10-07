@@ -109,6 +109,56 @@ def process_corefile(corefile: str, ip_address: str, fqdn: str) -> str:
     raise ValueError("Could not find standard server block (.:53 {) in Corefile.")
 
 
+def update_coredns_record(
+    ip_address: str, fqdn: str, base_url: str, token: str, verify: str | bool
+) -> None:
+    """
+    Reads, patches, and writes back the CoreDNS ConfigMap via K8s API using requests.
+    """
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    }
+
+    cm_name = "coredns"
+    cm_namespace = "kube-system"
+    api_url = f"{base_url}/api/v1/namespaces/{cm_namespace}/configmaps/{cm_name}"
+
+    try:
+        # 1. GET current ConfigMap
+        response = requests.get(api_url, headers=headers, verify=verify, timeout=10)
+        response.raise_for_status()
+        corefile = response.json().get("data", {}).get("Corefile", "")
+
+        # 2. Process changes
+        updated_corefile = process_corefile(corefile, ip_address, fqdn)
+
+        if updated_corefile == corefile:
+            logger.info("No changes required. Corefile is already up to date.")
+            return
+
+        # 3. PATCH the ConfigMap back
+        patch_headers = headers.copy()
+        patch_headers["Content-Type"] = "application/merge-patch+json"
+        patch_payload = {"data": {"Corefile": updated_corefile}}
+
+        patch_response = requests.patch(
+            api_url,
+            headers=patch_headers,
+            json=patch_payload,
+            verify=verify,
+            timeout=10,
+        )
+        patch_response.raise_for_status()
+
+        logger.info(f"Successfully patched {fqdn} -> {ip_address} in CoreDNS.")
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Kubernetes API Request Failed: {e}")
+    except ValueError as e:
+        logger.error(f"Failed to update Corefile: {e}")
+
+
 def update_registration_data(
     registration_ip: str, fqdn: str, cert: str, instance_data: str | dict
 ) -> None:
