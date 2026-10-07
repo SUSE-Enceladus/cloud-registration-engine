@@ -20,6 +20,7 @@
 
 import json
 import os
+import re
 import time
 
 import requests
@@ -73,6 +74,39 @@ def get_k8s_ca_cert_path(ca_cert_path: str = CA_CERT_PATH) -> str:
             verify = True
 
     return verify
+
+
+def process_corefile(corefile: str, ip_address: str, fqdn: str) -> str:
+    """Injects or updates a DNS mapping in the CoreDNS Corefile."""
+    if not corefile or not corefile.strip():
+        raise ValueError("Corefile is empty or invalid.")
+
+    line_pattern = r"^[ \t]*\S+[ \t]+" + re.escape(fqdn) + r"(?=\s|$).*$"
+
+    # Scenario 1: FQDN already exists -> Overwrite line
+    if re.search(line_pattern, corefile, flags=re.MULTILINE):
+        new_line = f"        {ip_address} {fqdn}"
+        return re.sub(line_pattern, new_line, corefile, flags=re.MULTILINE)
+
+    # Scenario 2: FQDN doesn't exist, but 'hosts {' block exists
+    hosts_pattern = r"(hosts\s*\{)"
+    if re.search(hosts_pattern, corefile):
+        insertion = rf"\g<1>\n           {ip_address} {fqdn}"
+        return re.sub(hosts_pattern, insertion, corefile, count=1)
+
+    # Scenario 3: Neither exists -> Inject new hosts block into main server block
+    server_block_pattern = r"(\.:53\s*\{)"
+    if re.search(server_block_pattern, corefile):
+        hosts_block = (
+            f"\\g<1>\n"
+            f"    hosts {{\n"
+            f"        {ip_address} {fqdn}\n"
+            f"        fallthrough\n"
+            f"    }}"
+        )
+        return re.sub(server_block_pattern, hosts_block, corefile, count=1)
+
+    raise ValueError("Could not find standard server block (.:53 {) in Corefile.")
 
 
 def update_registration_data(

@@ -24,7 +24,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from registration_engine.k8s import update_registration_data
+from registration_engine.k8s import process_corefile, update_registration_data
 
 MOCK_ENV = {
     "KUBERNETES_SERVICE_HOST": "127.0.0.1",
@@ -264,3 +264,45 @@ def test_update_registration_data_default_namespace(mock_get, mock_patch):
         verify=False,
         timeout=10,
     )
+
+
+def test_overwrite_existing_fqdn():
+    original = (
+        ".:53 {\n    hosts {\n        1.1.1.1 api.com\n        fallthrough\n    }\n}"
+    )
+    result = process_corefile(original, "2.2.2.2", "api.com")
+    assert "2.2.2.2 api.com" in result
+    assert "1.1.1.1" not in result
+
+
+def test_chaos_empty_or_none_corefile():
+    with pytest.raises(ValueError, match="Corefile is empty"):
+        process_corefile("   \n  ", "1.1.1.1", "api.com")
+
+
+def test_chaos_missing_server_block():
+    with pytest.raises(ValueError, match="Could not find standard server block"):
+        process_corefile("random config data", "1.1.1.1", "api.com")
+
+
+def test_chaos_substring_fqdn_trap():
+    original = (
+        ".:53 {\n    hosts {\n        10.0.0.1 myapi.com\n        fallthrough\n    }\n}"
+    )
+    result = process_corefile(original, "52.188.81.163", "api.com")
+    assert "10.0.0.1 myapi.com" in result
+    assert "52.188.81.163 api.com" in result
+
+
+def test_chaos_trailing_comments_on_existing_line():
+    original = (
+        ".:53 {\n"
+        "    hosts {\n"
+        "        1.2.3.4 api.com # old entry\n"
+        "        fallthrough\n"
+        "    }\n"
+        "}"
+    )
+    result = process_corefile(original, "2.2.2.2", "api.com")
+    assert "2.2.2.2 api.com" in result
+    assert "# old entry" not in result
