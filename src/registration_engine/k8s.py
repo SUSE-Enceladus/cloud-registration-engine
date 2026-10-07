@@ -30,6 +30,49 @@ logger = get_logger()
 
 K8S_RETRY_MAX = int(os.getenv("K8S_RETRY_MAX", "5"))
 K8S_RETRY_BACKOFF = float(os.getenv("K8S_RETRY_BACKOFF", "2.0"))
+TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+CA_CERT_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+
+def get_k8s_api_base_url() -> str:
+    """Constructs the internal Kubernetes API URL from env variables."""
+    host = os.getenv("KUBERNETES_SERVICE_HOST")
+    port = os.getenv("KUBERNETES_SERVICE_PORT")
+    if not host or not port:
+        logger.error("Kubernetes host or port environment variables missing.")
+        raise RuntimeError("Kubernetes service host or port not configured.")
+    return f"https://{host}:{port}"
+
+
+def get_k8s_token(token_path: str = TOKEN_PATH) -> str:
+    """Reads and returns the Kubernetes service account token."""
+    try:
+        if os.path.exists(token_path):
+            with open(token_path, "r", encoding="utf-8") as f:
+                token = f.read().strip()
+        else:
+            token = os.getenv("KUBERNETES_TOKEN", "").strip()
+            if not token:
+                raise RuntimeError("Service account token not found.")
+    except Exception as e:
+        logger.error("Failed to load Kubernetes token: %s", e)
+        raise e
+
+    return token
+
+
+def get_k8s_ca_cert_path(ca_cert_path: str = CA_CERT_PATH) -> str:
+    """Verifies existence and returns the path to the Kubernetes CA cert."""
+    if os.path.exists(ca_cert_path):
+        verify = ca_cert_path
+    else:
+        verify_env = os.getenv("KUBERNETES_CA_CERT", "True").strip().lower()
+        if verify_env == "false":
+            verify = False
+        else:
+            verify = True
+
+    return verify
 
 
 def update_registration_data(
@@ -46,38 +89,11 @@ def update_registration_data(
     secret_name = os.getenv("REGISTRATION_SECRET_NAME", "scc-registration")
 
     # Discover host and port
-    host = os.getenv("KUBERNETES_SERVICE_HOST")
-    port = os.getenv("KUBERNETES_SERVICE_PORT")
-    if not host or not port:
-        logger.error("Kubernetes host or port environment variables missing.")
-        raise RuntimeError("Kubernetes service host or port not configured.")
+    api_base_url = get_k8s_api_base_url()
 
-    api_base_url = f"https://{host}:{port}"
-
-    # Get service account credentials from files or env fallbacks
-    token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
-    ca_cert_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-
-    try:
-        if os.path.exists(token_path):
-            with open(token_path, "r", encoding="utf-8") as f:
-                token = f.read().strip()
-        else:
-            token = os.getenv("KUBERNETES_TOKEN", "").strip()
-            if not token:
-                raise RuntimeError("Service account token not found.")
-    except Exception as e:
-        logger.error("Failed to load Kubernetes token: %s", e)
-        raise e
-
-    if os.path.exists(ca_cert_path):
-        verify = ca_cert_path
-    else:
-        verify_env = os.getenv("KUBERNETES_CA_CERT", "True").strip().lower()
-        if verify_env == "false":
-            verify = False
-        else:
-            verify = True
+    # Get k8s token and cert
+    token = get_k8s_token()
+    verify = get_k8s_ca_cert_path()
 
     namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
 
