@@ -233,6 +233,9 @@ def update_registration_data(
 ) -> None:
     """Store/patch compiled registration info back into K8s secret.
 
+    The CoreDNS record for the FQDN is updated first. If that fails, the
+    exception propagates and the secret is not written.
+
     Args:
         registration_ip: Active SMT routing IP address
         fqdn: Fully qualified domain name of the SMT server
@@ -247,6 +250,9 @@ def update_registration_data(
     # Get k8s token and cert
     token = get_k8s_token()
     verify = get_k8s_ca_cert_path()
+
+    # Make sure the SMT FQDN resolves in-cluster before storing registration data
+    update_coredns_record(registration_ip, fqdn, api_base_url, token, verify)
 
     namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
 

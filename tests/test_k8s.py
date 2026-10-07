@@ -38,6 +38,13 @@ MOCK_ENV = {
 }
 
 
+@pytest.fixture(autouse=True)
+def mock_coredns():
+    """Isolate secret handling tests from the CoreDNS update call."""
+    with patch("registration_engine.k8s.update_coredns_record") as mock:
+        yield mock
+
+
 @patch("registration_engine.k8s.requests.patch")
 @patch("registration_engine.k8s.requests.get")
 def test_update_registration_data_patch_success(mock_get, mock_patch):
@@ -355,3 +362,38 @@ def test_requests_k8s_api_patch_coredns(mock_patch, mock_get):
     )
     assert patch_kwargs["headers"]["Content-Type"] == "application/merge-patch+json"
     assert "52.188.81.163 api.com" in patch_kwargs["json"]["data"]["Corefile"]
+
+
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_updates_coredns_first(
+    mock_get, mock_patch, mock_coredns
+):
+    """CoreDNS is updated once, with the discovered API credentials."""
+    mock_get.return_value = MagicMock(status_code=200)
+    mock_patch.return_value = MagicMock(status_code=200)
+
+    with patch.dict(os.environ, MOCK_ENV):
+        update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
+
+    mock_coredns.assert_called_once_with(
+        "10.0.0.1", "smt.example.com", "https://127.0.0.1:8443", "mocked-token", False
+    )
+
+
+@patch("registration_engine.k8s.requests.post")
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_coredns_failure_skips_secret(
+    mock_get, mock_patch, mock_post, mock_coredns
+):
+    """A CoreDNS failure propagates and the secret is never touched."""
+    mock_coredns.side_effect = RuntimeError("CoreDNS update exhausted retries")
+
+    with patch.dict(os.environ, MOCK_ENV):
+        with pytest.raises(RuntimeError, match="CoreDNS update"):
+            update_registration_data("10.0.0.1", "smt.example.com", "cert", {})
+
+    assert mock_get.call_count == 0
+    assert mock_patch.call_count == 0
+    assert mock_post.call_count == 0

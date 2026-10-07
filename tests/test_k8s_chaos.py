@@ -34,6 +34,13 @@ MOCK_ENV = {
 }
 
 
+@pytest.fixture(autouse=True)
+def mock_coredns():
+    """Isolate secret handling tests from the CoreDNS update call."""
+    with patch("registration_engine.k8s.update_coredns_record") as mock:
+        yield mock
+
+
 @patch("registration_engine.k8s.time.sleep")
 @patch("registration_engine.k8s.requests.patch")
 @patch("registration_engine.k8s.requests.get")
