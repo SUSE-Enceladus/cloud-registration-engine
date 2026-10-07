@@ -22,6 +22,7 @@ import json
 import os
 import re
 import time
+from collections.abc import Callable
 
 import requests
 
@@ -31,6 +32,7 @@ logger = get_logger()
 
 K8S_RETRY_MAX = int(os.getenv("K8S_RETRY_MAX", "5"))
 K8S_RETRY_BACKOFF = float(os.getenv("K8S_RETRY_BACKOFF", "2.0"))
+TRANSIENT_STATUS_CODES = (409, 429, 500, 502, 503, 504)
 TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_CERT_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 
@@ -109,11 +111,76 @@ def process_corefile(corefile: str, ip_address: str, fqdn: str) -> str:
     raise ValueError("Could not find standard server block (.:53 {) in Corefile.")
 
 
+class _TransientK8sError(RuntimeError):
+    """Raised inside a retried operation to signal a retryable failure."""
+
+
+def _run_with_retry(
+    operation: Callable[[], None],
+    description: str,
+    fatal: tuple[type[Exception], ...] = (),
+) -> None:
+    """Run operation, retrying transient failures with exponential backoff.
+
+    The operation is attempted up to K8S_RETRY_MAX times. It signals success by
+    returning and a retryable failure by raising _TransientK8sError.
+    Connection errors, timeouts and unexpected exceptions are also retried.
+
+    Args:
+        operation: Callable performing one full attempt.
+        description: Short label used in log and error messages.
+        fatal: Exception types (other than requests errors) that must be
+            re-raised immediately instead of retried.
+
+    Raises:
+        requests.HTTPError: Non-transient HTTP error, raised immediately.
+        RuntimeError: All retries were exhausted.
+    """
+    last_err: Exception | None = None
+    delay = 1.0
+    for attempt in range(1, K8S_RETRY_MAX + 1):
+        try:
+            operation()
+            return
+        except requests.HTTPError as e:
+            logger.error(
+                "Kubernetes %s failed with non-retryable error: %s", description, e
+            )
+            raise
+        except requests.RequestException as e:
+            last_err = e
+        except fatal:
+            raise
+        except Exception as e:
+            last_err = e
+
+        logger.warning(
+            "Kubernetes %s attempt %d/%d failed: %s",
+            description,
+            attempt,
+            K8S_RETRY_MAX,
+            last_err,
+        )
+        if attempt < K8S_RETRY_MAX:
+            time.sleep(delay)
+            delay *= K8S_RETRY_BACKOFF
+
+    raise RuntimeError(f"Kubernetes {description} exhausted retries: {last_err}")
+
+
 def update_coredns_record(
     ip_address: str, fqdn: str, base_url: str, token: str, verify: str | bool
 ) -> None:
     """
     Reads, patches, and writes back the CoreDNS ConfigMap via K8s API using requests.
+
+    Transient failures (connection errors, timeouts, and HTTP 409/429/5xx) retry
+    the whole read-modify-write cycle so a conflict re-reads the latest ConfigMap.
+
+    Raises:
+        ValueError: The Corefile could not be processed (not retried).
+        requests.HTTPError: Non-transient HTTP error (not retried).
+        RuntimeError: All retries were exhausted.
     """
     headers = {
         "Authorization": f"Bearer {token}",
@@ -124,9 +191,11 @@ def update_coredns_record(
     cm_namespace = "kube-system"
     api_url = f"{base_url}/api/v1/namespaces/{cm_namespace}/configmaps/{cm_name}"
 
-    try:
+    def attempt() -> None:
         # 1. GET current ConfigMap
         response = requests.get(api_url, headers=headers, verify=verify, timeout=10)
+        if response.status_code in TRANSIENT_STATUS_CODES:
+            raise _TransientK8sError(f"Transient read error {response.status_code}")
         response.raise_for_status()
         corefile = response.json().get("data", {}).get("Corefile", "")
 
@@ -138,8 +207,7 @@ def update_coredns_record(
             return
 
         # 3. PATCH the ConfigMap back
-        patch_headers = headers.copy()
-        patch_headers["Content-Type"] = "application/merge-patch+json"
+        patch_headers = headers | {"Content-Type": "application/merge-patch+json"}
         patch_payload = {"data": {"Corefile": updated_corefile}}
 
         patch_response = requests.patch(
@@ -149,14 +217,15 @@ def update_coredns_record(
             verify=verify,
             timeout=10,
         )
+        if patch_response.status_code in TRANSIENT_STATUS_CODES:
+            raise _TransientK8sError(
+                f"Transient patch error {patch_response.status_code}"
+            )
         patch_response.raise_for_status()
 
-        logger.info(f"Successfully patched {fqdn} -> {ip_address} in CoreDNS.")
+        logger.info("Successfully patched %s -> %s in CoreDNS.", fqdn, ip_address)
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Kubernetes API Request Failed: {e}")
-    except ValueError as e:
-        logger.error(f"Failed to update Corefile: {e}")
+    _run_with_retry(attempt, "CoreDNS update", fatal=(ValueError,))
 
 
 def update_registration_data(
@@ -208,98 +277,72 @@ def update_registration_data(
     secret_url = f"{api_base_url}/api/v1/namespaces/{namespace}/secrets/{secret_name}"
     create_url = f"{api_base_url}/api/v1/namespaces/{namespace}/secrets"
 
-    last_err = None
-    delay = 1.0
-    for attempt in range(1, K8S_RETRY_MAX + 1):
-        try:
-            # 1. Read to check if secret exists first
-            read_resp = requests.get(
-                secret_url, headers=headers, verify=verify, timeout=10
+    def attempt() -> None:
+        # 1. Read to check if secret exists first
+        read_resp = requests.get(secret_url, headers=headers, verify=verify, timeout=10)
+
+        if read_resp.status_code == 200:
+            # 2. Secret exists, patch it
+            patch_headers = headers | {"Content-Type": "application/merge-patch+json"}
+            patch_body = {"stringData": string_data}
+            patch_resp = requests.patch(
+                secret_url,
+                json=patch_body,
+                headers=patch_headers,
+                verify=verify,
+                timeout=10,
+            )
+            if patch_resp.status_code == 200:
+                logger.info(
+                    "Successfully patched secret %s in namespace %s",
+                    secret_name,
+                    namespace,
+                )
+                return
+            if patch_resp.status_code in TRANSIENT_STATUS_CODES:
+                raise _TransientK8sError(
+                    f"Transient patch error {patch_resp.status_code}"
+                )
+            patch_resp.raise_for_status()
+            raise _TransientK8sError(
+                f"Unexpected patch status {patch_resp.status_code}"
             )
 
-            if read_resp.status_code == 200:
-                # 2. Secret exists, patch it
-                patch_headers = headers | {
-                    "Content-Type": "application/merge-patch+json"
-                }
-                patch_body = {"stringData": string_data}
-                patch_resp = requests.patch(
-                    secret_url,
-                    json=patch_body,
-                    headers=patch_headers,
-                    verify=verify,
-                    timeout=10,
-                )
-                if patch_resp.status_code == 200:
-                    logger.info(
-                        "Successfully patched secret %s in namespace %s",
-                        secret_name,
-                        namespace,
-                    )
-                    return
-                elif patch_resp.status_code in (409, 429, 500, 502, 503, 504):
-                    last_err = RuntimeError(
-                        f"Transient patch error {patch_resp.status_code}"
-                    )
-                else:
-                    patch_resp.raise_for_status()
-
-            elif read_resp.status_code == 404:
-                # 3. Secret doesn't exist, create it
-                create_body = {
-                    "apiVersion": "v1",
-                    "kind": "Secret",
-                    "metadata": {"name": secret_name},
-                    "type": "Opaque",
-                    "stringData": string_data,
-                }
-                create_resp = requests.post(
-                    create_url,
-                    json=create_body,
-                    headers=headers,
-                    verify=verify,
-                    timeout=10,
-                )
-                if create_resp.status_code in (200, 201):
-                    logger.info(
-                        "Successfully created secret %s in namespace %s",
-                        secret_name,
-                        namespace,
-                    )
-                    return
-                elif create_resp.status_code in (409, 429, 500, 502, 503, 504):
-                    last_err = RuntimeError(
-                        f"Transient create error {create_resp.status_code}"
-                    )
-                else:
-                    create_resp.raise_for_status()
-
-            elif read_resp.status_code in (409, 429, 500, 502, 503, 504):
-                last_err = RuntimeError(f"Transient read error {read_resp.status_code}")
-            else:
-                read_resp.raise_for_status()
-
-        except requests.HTTPError as e:
-            logger.error(
-                "Failed to access secret %s in namespace %s: %s",
-                secret_name,
-                namespace,
-                e,
+        if read_resp.status_code == 404:
+            # 3. Secret doesn't exist, create it
+            create_body = {
+                "apiVersion": "v1",
+                "kind": "Secret",
+                "metadata": {"name": secret_name},
+                "type": "Opaque",
+                "stringData": string_data,
+            }
+            create_resp = requests.post(
+                create_url,
+                json=create_body,
+                headers=headers,
+                verify=verify,
+                timeout=10,
             )
-            raise e
-        except requests.RequestException as e:
-            last_err = e
-        except Exception as ex:
-            last_err = ex
+            if create_resp.status_code in (200, 201):
+                logger.info(
+                    "Successfully created secret %s in namespace %s",
+                    secret_name,
+                    namespace,
+                )
+                return
+            if create_resp.status_code in TRANSIENT_STATUS_CODES:
+                raise _TransientK8sError(
+                    f"Transient create error {create_resp.status_code}"
+                )
+            create_resp.raise_for_status()
+            raise _TransientK8sError(
+                f"Unexpected create status {create_resp.status_code}"
+            )
 
-        logger.warning(
-            "Kubernetes secret update attempt %d/%d failed: %s",
-            attempt,
-            K8S_RETRY_MAX,
-            last_err,
-        )
-        if attempt < K8S_RETRY_MAX:
-            time.sleep(delay)
-            delay *= K8S_RETRY_BACKOFF
+        if read_resp.status_code in TRANSIENT_STATUS_CODES:
+            raise _TransientK8sError(f"Transient read error {read_resp.status_code}")
+        read_resp.raise_for_status()
+        raise _TransientK8sError(f"Unexpected read status {read_resp.status_code}")
 
-    raise RuntimeError(f"Kubernetes secret update exhausted retries: {last_err}")
+    _run_with_retry(attempt, "secret update")
