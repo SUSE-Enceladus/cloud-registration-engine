@@ -56,7 +56,6 @@ def update_registration_data(
     # Get service account credentials from files or env fallbacks
     token_path = "/var/run/secrets/kubernetes.io/serviceaccount/token"
     ca_cert_path = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-    namespace_path = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 
     try:
         if os.path.exists(token_path):
@@ -79,15 +78,7 @@ def update_registration_data(
         else:
             verify = True
 
-    if os.path.exists(namespace_path):
-        try:
-            with open(namespace_path, "r", encoding="utf-8") as f:
-                namespace = f.read().strip()
-        except Exception as e:
-            logger.error("Failed to read Kubernetes namespace file: %s", e)
-            raise e
-    else:
-        namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
+    namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
 
     reg_code = os.getenv(
         "REGISTRATION_CODE",

@@ -206,3 +206,54 @@ def test_update_registration_data_instance_data_string(mock_get, mock_patch):
     args, kwargs = mock_patch.call_args
     body = kwargs["json"]
     assert body["stringData"]["instanceData"] == "raw_string_data"
+
+
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_update_registration_data_default_namespace(mock_get, mock_patch):
+    """Test default namespace is cattle-scc-system when env var is unset."""
+    mock_read_resp = MagicMock()
+    mock_read_resp.status_code = 200
+    mock_get.return_value = mock_read_resp
+
+    mock_patch_resp = MagicMock()
+    mock_patch_resp.status_code = 200
+    mock_patch.return_value = mock_patch_resp
+
+    env_without_ns = {
+        k: v for k, v in MOCK_ENV.items() if k != "REGISTRATION_SECRET_NAMESPACE"
+    }
+
+    with patch.dict(os.environ, env_without_ns, clear=True):
+        update_registration_data("10.0.0.1", "cert", {})
+
+    mock_get.assert_called_once_with(
+        "https://127.0.0.1:8443/api/v1/namespaces/cattle-scc-system/"
+        "secrets/scc-registration",
+        headers={
+            "Authorization": "Bearer mocked-token",
+            "Accept": "application/json",
+        },
+        verify=False,
+        timeout=10,
+    )
+    mock_patch.assert_called_once_with(
+        "https://127.0.0.1:8443/api/v1/namespaces/cattle-scc-system/"
+        "secrets/scc-registration",
+        json={
+            "stringData": {
+                "registrationType": "online",
+                "registrationUrl": "10.0.0.1",
+                "regCode": "",
+                "instanceData": "{}",
+                "registrationUrlCert": "cert",
+            }
+        },
+        headers={
+            "Authorization": "Bearer mocked-token",
+            "Accept": "application/json",
+            "Content-Type": "application/merge-patch+json",
+        },
+        verify=False,
+        timeout=10,
+    )
