@@ -1,3 +1,12 @@
+v2.0.0 (2026-10-08)
+===================
+
+- Use cattle-scc-system namespace by default for registration
+  secret with an environment variable override REGISTRATION_SECRET_NAMESPACE.
+- Pass FQDN as registration URL instead of IP address
+- Add hosts record in cluster level CoreDNS with registrtation
+  server IP -> FQDN.
+
 v1.1.0 (2026-09-09)
 ===================
 
