@@ -1,3 +1,12 @@
+Unreleased
+==========
+
+- Update the coredns-custom ConfigMap on Azure AKS instead of the
+  coredns ConfigMap, which AKS reconciles. The registration.override key
+  is used and CoreDNS is restarted after a change. If coredns-custom does
+  not exist the coredns ConfigMap is patched as before.
+- Pass the detected cloud provider to update_registration_data.
+
 v2.0.0 (2026-10-08)
 ===================
 

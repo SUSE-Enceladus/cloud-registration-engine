@@ -164,7 +164,7 @@ def run_one_cycle() -> None:
             )
             return
 
-        update_func(registration_ip, fqdn, cert, verification_xml)
+        update_func(registration_ip, fqdn, cert, verification_xml, provider)
         log.info("State persistence successful. Registration data updated.")
     except Exception as e:
         log.error("Failed to persist state: %s", e)
