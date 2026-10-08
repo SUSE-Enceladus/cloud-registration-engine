@@ -137,6 +137,7 @@ def get_target_update_server(cfg: RawConfigParser) -> Optional[dict[str, str]]:
             "ipv4": responding_server.get_ipv4(),
             "ipv6": responding_server.get_ipv6(),
             "cert": responding_server.get_cert(),
+            "fqdn": responding_server.get_FQDN(),
         }
     except Exception as e:
         log.error("Failed to extract IP/cert from responding SMT: %s", e)
