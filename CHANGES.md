@@ -1,5 +1,5 @@
-Unreleased
-==========
+v2.1.0 (2026-10-09)
+===================
 
 - Update the coredns-custom ConfigMap on Azure AKS instead of the
   coredns ConfigMap, which AKS reconciles. The registration.override key
