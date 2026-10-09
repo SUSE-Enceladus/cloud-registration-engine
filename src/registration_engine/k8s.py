@@ -23,9 +23,11 @@ import os
 import re
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 import requests
 
+from registration_engine.provider import PROVIDER_MICROSOFT, PROVIDER_UNKNOWN
 from registration_engine.utils import get_logger
 
 logger = get_logger()
@@ -35,6 +37,14 @@ K8S_RETRY_BACKOFF = float(os.getenv("K8S_RETRY_BACKOFF", "2.0"))
 TRANSIENT_STATUS_CODES = (409, 429, 500, 502, 503, 504)
 TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 CA_CERT_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+COREDNS_NAMESPACE = "kube-system"
+COREDNS_CONFIGMAP = "coredns"
+COREDNS_DEPLOYMENT = "coredns"
+# Azure AKS reconciles the "coredns" ConfigMap and reverts manual edits.
+# Customisations go in the "coredns-custom" ConfigMap instead. Keys ending in
+# ".override" are imported inside the default server block.
+COREDNS_CUSTOM_CONFIGMAP = "coredns-custom"
+COREDNS_CUSTOM_KEY = "registration.override"
 
 
 def get_k8s_api_base_url() -> str:
@@ -111,6 +121,42 @@ def process_corefile(corefile: str, ip_address: str, fqdn: str) -> str:
     raise ValueError("Could not find standard server block (.:53 {) in Corefile.")
 
 
+def process_custom_corefile(override: str, ip_address: str, fqdn: str) -> str:
+    """Injects or updates a DNS mapping in a coredns-custom ``.override`` snippet.
+
+    An override snippet contains bare CoreDNS directives that AKS imports into
+    the default ``.:53`` server block, so there is no server block wrapper.
+    An empty snippet is valid (the key does not exist on the first run).
+    """
+    override = override or ""
+
+    # Scenario 1: FQDN already exists -> Overwrite line, keeping indentation
+    line_pattern = r"^([ \t]*)\S+[ \t]+" + re.escape(fqdn) + r"(?=\s|$).*$"
+    if re.search(line_pattern, override, flags=re.MULTILINE):
+        return re.sub(
+            line_pattern,
+            lambda m: f"{m.group(1)}{ip_address} {fqdn}",
+            override,
+            flags=re.MULTILINE,
+        )
+
+    # Scenario 2: FQDN doesn't exist, but 'hosts {' block exists
+    hosts_pattern = r"(hosts\s*\{)"
+    if re.search(hosts_pattern, override):
+        return re.sub(
+            hosts_pattern,
+            lambda m: f"{m.group(1)}\n    {ip_address} {fqdn}",
+            override,
+            count=1,
+        )
+
+    # Scenario 3: Neither exists -> append a new hosts block
+    hosts_block = f"hosts {{\n    {ip_address} {fqdn}\n    fallthrough\n}}\n"
+    if override.strip():
+        return override.rstrip("\n") + "\n" + hosts_block
+    return hosts_block
+
+
 class _TransientK8sError(RuntimeError):
     """Raised inside a retried operation to signal a retryable failure."""
 
@@ -168,11 +214,139 @@ def _run_with_retry(
     raise RuntimeError(f"Kubernetes {description} exhausted retries: {last_err}")
 
 
+def _check_response(response: requests.Response, action: str) -> None:
+    """Raise _TransientK8sError for retryable statuses, HTTPError otherwise."""
+    if response.status_code in TRANSIENT_STATUS_CODES:
+        raise _TransientK8sError(f"Transient {action} error {response.status_code}")
+    response.raise_for_status()
+
+
+def _update_coredns_configmap(
+    ip_address: str, fqdn: str, api_url: str, headers: dict, verify: str | bool
+) -> None:
+    """One attempt at patching the Corefile in the standard coredns ConfigMap."""
+    # 1. GET current ConfigMap
+    response = requests.get(api_url, headers=headers, verify=verify, timeout=10)
+    _check_response(response, "read")
+    corefile = response.json().get("data", {}).get("Corefile", "")
+
+    # 2. Process changes
+    updated_corefile = process_corefile(corefile, ip_address, fqdn)
+
+    if updated_corefile == corefile:
+        logger.info("No changes required. Corefile is already up to date.")
+        return
+
+    # 3. PATCH the ConfigMap back
+    patch_headers = headers | {"Content-Type": "application/merge-patch+json"}
+    patch_payload = {"data": {"Corefile": updated_corefile}}
+
+    patch_response = requests.patch(
+        api_url,
+        headers=patch_headers,
+        json=patch_payload,
+        verify=verify,
+        timeout=10,
+    )
+    _check_response(patch_response, "patch")
+
+    logger.info("Successfully patched %s -> %s in CoreDNS.", fqdn, ip_address)
+
+
+def _restart_coredns(base_url: str, headers: dict, verify: str | bool) -> None:
+    """Trigger a rollout restart of the CoreDNS deployment."""
+    url = (
+        f"{base_url}/apis/apps/v1/namespaces/{COREDNS_NAMESPACE}"
+        f"/deployments/{COREDNS_DEPLOYMENT}"
+    )
+    restarted_at = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {"kubectl.kubernetes.io/restartedAt": restarted_at}
+                }
+            }
+        }
+    }
+    response = requests.patch(
+        url,
+        headers=headers | {"Content-Type": "application/merge-patch+json"},
+        json=payload,
+        verify=verify,
+        timeout=10,
+    )
+    _check_response(response, "restart")
+    logger.info("Triggered rollout restart of CoreDNS deployment.")
+
+
+def _update_coredns_custom(
+    ip_address: str, fqdn: str, base_url: str, headers: dict, verify: str | bool
+) -> bool:
+    """One attempt at updating the AKS coredns-custom ConfigMap.
+
+    The ConfigMap is never created. Only the registration override key is
+    written, leaving any other keys untouched.
+
+    Returns:
+        True if coredns-custom exists and was handled, False if it does not
+        exist (the caller should fall back to the coredns ConfigMap).
+    """
+    api_url = (
+        f"{base_url}/api/v1/namespaces/{COREDNS_NAMESPACE}"
+        f"/configmaps/{COREDNS_CUSTOM_CONFIGMAP}"
+    )
+    response = requests.get(api_url, headers=headers, verify=verify, timeout=10)
+    if response.status_code == 404:
+        logger.info(
+            "ConfigMap %s not found, falling back to %s.",
+            COREDNS_CUSTOM_CONFIGMAP,
+            COREDNS_CONFIGMAP,
+        )
+        return False
+    _check_response(response, "read")
+
+    override = (response.json().get("data") or {}).get(COREDNS_CUSTOM_KEY, "")
+    updated_override = process_custom_corefile(override, ip_address, fqdn)
+
+    if updated_override == override:
+        logger.info("No changes required. %s is up to date.", COREDNS_CUSTOM_CONFIGMAP)
+        return True
+
+    patch_response = requests.patch(
+        api_url,
+        headers=headers | {"Content-Type": "application/merge-patch+json"},
+        json={"data": {COREDNS_CUSTOM_KEY: updated_override}},
+        verify=verify,
+        timeout=10,
+    )
+    _check_response(patch_response, "patch")
+    logger.info(
+        "Successfully patched %s -> %s in %s.",
+        fqdn,
+        ip_address,
+        COREDNS_CUSTOM_CONFIGMAP,
+    )
+
+    _restart_coredns(base_url, headers, verify)
+    return True
+
+
 def update_coredns_record(
-    ip_address: str, fqdn: str, base_url: str, token: str, verify: str | bool
+    ip_address: str,
+    fqdn: str,
+    base_url: str,
+    token: str,
+    verify: str | bool,
+    provider: str = PROVIDER_UNKNOWN,
 ) -> None:
     """
-    Reads, patches, and writes back the CoreDNS ConfigMap via K8s API using requests.
+    Reads, patches, and writes back the CoreDNS config via K8s API using requests.
+
+    On Azure (AKS) the coredns ConfigMap is reconciled by AKS, so the record is
+    written to the existing coredns-custom ConfigMap and CoreDNS is restarted.
+    If coredns-custom does not exist, or on any other provider, the coredns
+    ConfigMap is patched directly.
 
     Transient failures (connection errors, timeouts, and HTTP 409/429/5xx) retry
     the whole read-modify-write cycle so a conflict re-reads the latest ConfigMap.
@@ -187,49 +361,27 @@ def update_coredns_record(
         "Accept": "application/json",
     }
 
-    cm_name = "coredns"
-    cm_namespace = "kube-system"
-    api_url = f"{base_url}/api/v1/namespaces/{cm_namespace}/configmaps/{cm_name}"
+    api_url = (
+        f"{base_url}/api/v1/namespaces/{COREDNS_NAMESPACE}"
+        f"/configmaps/{COREDNS_CONFIGMAP}"
+    )
 
     def attempt() -> None:
-        # 1. GET current ConfigMap
-        response = requests.get(api_url, headers=headers, verify=verify, timeout=10)
-        if response.status_code in TRANSIENT_STATUS_CODES:
-            raise _TransientK8sError(f"Transient read error {response.status_code}")
-        response.raise_for_status()
-        corefile = response.json().get("data", {}).get("Corefile", "")
-
-        # 2. Process changes
-        updated_corefile = process_corefile(corefile, ip_address, fqdn)
-
-        if updated_corefile == corefile:
-            logger.info("No changes required. Corefile is already up to date.")
+        if provider == PROVIDER_MICROSOFT and _update_coredns_custom(
+            ip_address, fqdn, base_url, headers, verify
+        ):
             return
-
-        # 3. PATCH the ConfigMap back
-        patch_headers = headers | {"Content-Type": "application/merge-patch+json"}
-        patch_payload = {"data": {"Corefile": updated_corefile}}
-
-        patch_response = requests.patch(
-            api_url,
-            headers=patch_headers,
-            json=patch_payload,
-            verify=verify,
-            timeout=10,
-        )
-        if patch_response.status_code in TRANSIENT_STATUS_CODES:
-            raise _TransientK8sError(
-                f"Transient patch error {patch_response.status_code}"
-            )
-        patch_response.raise_for_status()
-
-        logger.info("Successfully patched %s -> %s in CoreDNS.", fqdn, ip_address)
+        _update_coredns_configmap(ip_address, fqdn, api_url, headers, verify)
 
     _run_with_retry(attempt, "CoreDNS update", fatal=(ValueError,))
 
 
 def update_registration_data(
-    registration_ip: str, fqdn: str, cert: str, instance_data: str | dict
+    registration_ip: str,
+    fqdn: str,
+    cert: str,
+    instance_data: str | dict,
+    provider: str = PROVIDER_UNKNOWN,
 ) -> None:
     """Store/patch compiled registration info back into K8s secret.
 
@@ -241,6 +393,7 @@ def update_registration_data(
         fqdn: Fully qualified domain name of the SMT server
         cert: Validated SMT certificate string
         instance_data: String or dictionary of collected instance data
+        provider: Detected cloud provider, selects the CoreDNS update strategy
     """
     secret_name = os.getenv("REGISTRATION_SECRET_NAME", "scc-registration")
 
@@ -252,7 +405,7 @@ def update_registration_data(
     verify = get_k8s_ca_cert_path()
 
     # Make sure the SMT FQDN resolves in-cluster before storing registration data
-    update_coredns_record(registration_ip, fqdn, api_base_url, token, verify)
+    update_coredns_record(registration_ip, fqdn, api_base_url, token, verify, provider)
 
     namespace = os.getenv("REGISTRATION_SECRET_NAMESPACE", "cattle-scc-system")
 

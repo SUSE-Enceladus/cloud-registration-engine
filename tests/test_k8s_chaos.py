@@ -24,7 +24,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from registration_engine.k8s import update_coredns_record, update_registration_data
+from registration_engine.k8s import (
+    process_custom_corefile,
+    update_coredns_record,
+    update_registration_data,
+)
 
 MOCK_ENV = {
     "KUBERNETES_SERVICE_HOST": "127.0.0.1",
@@ -306,3 +310,92 @@ def test_update_coredns_record_no_changes_skips_patch(mock_get, mock_patch, mock
 
     assert mock_patch.call_count == 0
     assert mock_sleep.call_count == 0
+
+
+# --- coredns-custom (Azure AKS) ---
+
+
+def _cm_resp(status, override=None):
+    resp = MagicMock()
+    resp.status_code = status
+    resp.json.return_value = {"data": {"registration.override": override or ""}}
+    return resp
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_aks_transient_get_chaos(mock_get, mock_patch, mock_sleep):
+    """Chaos Test: coredns-custom GET returns 503 once, then succeeds."""
+    mock_get.side_effect = [_resp(503), _cm_resp(200)]
+    mock_patch.return_value = _resp(200)
+
+    update_coredns_record(*COREDNS_ARGS, "microsoft")
+
+    assert mock_get.call_count == 2
+    assert mock_patch.call_count == 2  # ConfigMap patch + restart
+    mock_sleep.assert_called_once_with(1.0)
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_aks_patch_conflict_rereads(mock_get, mock_patch, mock_sleep):
+    """Chaos Test: PATCH 409 on coredns-custom retries the full cycle."""
+    mock_get.return_value = _cm_resp(200)
+    mock_patch.side_effect = [_resp(409), _resp(200), _resp(200)]
+
+    update_coredns_record(*COREDNS_ARGS, "microsoft")
+
+    assert mock_get.call_count == 2
+    assert mock_patch.call_count == 3
+    mock_sleep.assert_called_once_with(1.0)
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_aks_restart_transient_failure_retries_attempt(
+    mock_get, mock_patch, mock_sleep
+):
+    """A transient restart failure retries the attempt (known gap: re-read
+    sees the written record, so the second attempt does not write or restart).
+    """
+    written = process_custom_corefile("", "52.188.81.163", "api.com")
+    mock_get.side_effect = [_cm_resp(200), _cm_resp(200, written)]
+    mock_patch.side_effect = [_resp(200), _resp(503)]
+
+    update_coredns_record(*COREDNS_ARGS, "microsoft")
+
+    assert mock_get.call_count == 2
+    assert mock_patch.call_count == 2
+    mock_sleep.assert_called_once_with(1.0)
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.requests.patch")
+@patch("registration_engine.k8s.requests.get")
+def test_aks_restart_non_transient_error_raises(mock_get, mock_patch, mock_sleep):
+    """Chaos Test: 403 on the CoreDNS restart propagates immediately."""
+    forbidden = _resp(403)
+    forbidden.raise_for_status.side_effect = requests.HTTPError("403 Forbidden")
+    mock_get.return_value = _cm_resp(200)
+    mock_patch.side_effect = [_resp(200), forbidden]
+
+    with pytest.raises(requests.HTTPError, match="Forbidden"):
+        update_coredns_record(*COREDNS_ARGS, "microsoft")
+
+    assert mock_patch.call_count == 2
+    assert mock_sleep.call_count == 0
+
+
+@patch("registration_engine.k8s.time.sleep")
+@patch("registration_engine.k8s.requests.get")
+def test_aks_exhausted_retries(mock_get, mock_sleep):
+    """Chaos Test: persistent 429 on coredns-custom raises after all retries."""
+    mock_get.return_value = _resp(429)
+
+    with pytest.raises(RuntimeError, match="exhausted retries"):
+        update_coredns_record(*COREDNS_ARGS, "microsoft")
+
+    assert mock_get.call_count == 5
