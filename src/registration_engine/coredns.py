@@ -50,13 +50,13 @@ COREDNS_CUSTOM_KEY = "registration.override"
 INDENT = "    "
 
 
-def _hosts_block(ip_address: str, fqdn: str, indent: str = "") -> str:
+def _hosts_block(ip_address: str, fqdn: str, block_indent: str = "") -> str:
     """Return a new CoreDNS hosts block for a single record."""
     return (
-        f"{indent}hosts {{\n"
-        f"{indent}{INDENT}{ip_address} {fqdn}\n"
-        f"{indent}{INDENT}fallthrough\n"
-        f"{indent}}}"
+        f"{block_indent}hosts {{\n"
+        f"{block_indent}{INDENT}{ip_address} {fqdn}\n"
+        f"{block_indent}{INDENT}fallthrough\n"
+        f"{block_indent}}}"
     )
 
 
