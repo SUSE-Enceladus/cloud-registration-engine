@@ -1,3 +1,10 @@
+v2.2.0 (2026-10-13)
+===================
+
+- Refactor k8s core DNS update code
+  + Remove code duplication
+  + Split up code into separate modules
+
 v2.1.0 (2026-10-09)
 ===================
 
